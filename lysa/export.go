@@ -26,6 +26,10 @@ var Datasets = []Dataset{
 	{"performance", "Performance", "Daily portfolio value series + total return"},
 	{"profile", "Profile", "Legal entity / KYC (name, personal number, email)"},
 	{"advice", "Advice & risk", "Per-account advised vs taken risk and suitability declaration"},
+	{"fees", "Fees paid", "Every management fee charged (date, amount, VAT)"},
+	{"funds", "Fund catalog", "The funds you hold — ISIN, name, share class"},
+	{"tax", "Tax years", "Available ISK tax (deklaration) years per account"},
+	{"documents", "Documents", "Register of your statements & documents"},
 }
 
 func validKey(k string) bool {
@@ -175,6 +179,67 @@ func (c *Client) Export(ctx context.Context, outDir string, selected []string) (
 		}
 	}
 
+	if sel["fees"] {
+		raw, err := c.FeesPaid(ctx)
+		if err != nil {
+			return files, err
+		}
+		if err := writeJSON("fees", raw); err != nil {
+			return files, err
+		}
+		var fees []feePaid
+		if err := json.Unmarshal(raw, &fees); err != nil {
+			return files, err
+		}
+		if err := writeCSV("fees", feesHeader, feeRows(fees)); err != nil {
+			return files, err
+		}
+	}
+
+	if sel["funds"] {
+		raw, err := c.FundsSummary(ctx)
+		if err != nil {
+			return files, err
+		}
+		if err := writeJSON("funds", raw); err != nil {
+			return files, err
+		}
+		var funds []fundsDepot
+		if err := json.Unmarshal(raw, &funds); err != nil {
+			return files, err
+		}
+		if err := writeCSV("funds", fundsHeader, fundRows(funds)); err != nil {
+			return files, err
+		}
+	}
+
+	if sel["tax"] {
+		raw, err := c.TaxIskYears(ctx)
+		if err != nil {
+			return files, err
+		}
+		if err := writeJSON("tax", raw); err != nil {
+			return files, err
+		}
+		var tax []taxIsk
+		if err := json.Unmarshal(raw, &tax); err != nil {
+			return files, err
+		}
+		if err := writeCSV("tax_years", taxHeader, taxRows(tax)); err != nil {
+			return files, err
+		}
+	}
+
+	if sel["documents"] {
+		raw, err := c.Documents(ctx)
+		if err != nil {
+			return files, err
+		}
+		if err := writeJSON("documents", raw); err != nil {
+			return files, err
+		}
+	}
+
 	sort.Strings(files)
 	return files, nil
 }
@@ -274,6 +339,62 @@ func (p *performanceResp) rows() [][]string {
 	rows := make([][]string, 0, len(p.Graph))
 	for _, g := range p.Graph {
 		rows = append(rows, []string{g.Date, num(g.Worth), num(g.Change), num(g.Growth)})
+	}
+	return rows
+}
+
+type feePaid struct {
+	Date            string  `json:"date"`
+	Fee             float64 `json:"fee"`
+	FeeExcludingVat float64 `json:"feeExcludingVat"`
+	TransactionID   string  `json:"transactionId"`
+	AccountID       string  `json:"accountId"`
+}
+
+var feesHeader = []string{"date", "fee", "feeExcludingVat", "transactionId", "accountId"}
+
+func feeRows(fees []feePaid) [][]string {
+	sort.Slice(fees, func(i, j int) bool { return fees[i].Date < fees[j].Date })
+	rows := make([][]string, 0, len(fees))
+	for _, f := range fees {
+		rows = append(rows, []string{f.Date, num(f.Fee), num(f.FeeExcludingVat), f.TransactionID, f.AccountID})
+	}
+	return rows
+}
+
+type fundsDepot struct {
+	DepotID          string `json:"depotId"`
+	FundShareClasses []struct {
+		Name string `json:"name"`
+		ISIN string `json:"isin"`
+	} `json:"fundShareClasses"`
+}
+
+var fundsHeader = []string{"depotId", "isin", "fund"}
+
+func fundRows(funds []fundsDepot) [][]string {
+	var rows [][]string
+	for _, d := range funds {
+		for _, s := range d.FundShareClasses {
+			rows = append(rows, []string{d.DepotID, s.ISIN, s.Name})
+		}
+	}
+	return rows
+}
+
+type taxIsk struct {
+	AccountID string `json:"accountId"`
+	TaxYears  []int  `json:"taxYears"`
+}
+
+var taxHeader = []string{"accountId", "taxYear"}
+
+func taxRows(tax []taxIsk) [][]string {
+	var rows [][]string
+	for _, t := range tax {
+		for _, y := range t.TaxYears {
+			rows = append(rows, []string{t.AccountID, strconv.Itoa(y)})
+		}
 	}
 	return rows
 }

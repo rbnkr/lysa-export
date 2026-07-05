@@ -203,6 +203,22 @@ func (c *Client) Advice(ctx context.Context) (json.RawMessage, error) {
 	return c.get(ctx, "/investments/combined/advice")
 }
 
+func (c *Client) FeesPaid(ctx context.Context) (json.RawMessage, error) {
+	return c.get(ctx, "/fees/paid")
+}
+
+func (c *Client) FundsSummary(ctx context.Context) (json.RawMessage, error) {
+	return c.get(ctx, "/funds/data/summary")
+}
+
+func (c *Client) TaxIskYears(ctx context.Context) (json.RawMessage, error) {
+	return c.get(ctx, "/tax/isk/years")
+}
+
+func (c *Client) Documents(ctx context.Context) (json.RawMessage, error) {
+	return c.get(ctx, "/documents")
+}
+
 func truncate(b []byte, n int) string {
 	s := string(b)
 	if len(s) > n {
