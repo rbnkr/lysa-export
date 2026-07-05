@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lysa Export</title>
+<style>
+  :root {
+    --bg: #0e0e10; --surface: #16161a; --surface2: #1e1e24; --border: #2a2a31;
+    --text: #ececf1; --muted: #8b8b94; --accent: #f17730; --accent-dim: #b8551d;
+    --ok: #3fb950; --err: #f85149;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    display: flex; align-items: center; justify-content: center; padding: 24px;
+  }
+  .card {
+    width: 100%; max-width: 460px; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 16px; padding: 28px;
+    box-shadow: 0 12px 40px rgba(0,0,0,.4);
+  }
+  h1 { font-size: 20px; margin: 0 0 2px; letter-spacing: -.01em; }
+  h1 .dot { color: var(--accent); }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 22px; }
+  .qrwrap { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  .qr {
+    width: 260px; height: 260px; background: #fff; border-radius: 12px; padding: 10px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .qr img { width: 100%; height: 100%; image-rendering: pixelated; }
+  .hint { color: var(--muted); font-size: 13px; text-align: center; }
+  .row { display: flex; align-items: flex-start; gap: 12px; padding: 12px 4px; border-top: 1px solid var(--border); }
+  .row:first-of-type { border-top: none; }
+  .row label { display: flex; gap: 12px; cursor: pointer; width: 100%; }
+  .row input { margin-top: 3px; accent-color: var(--accent); width: 16px; height: 16px; }
+  .row .name { font-weight: 600; }
+  .row .desc { color: var(--muted); font-size: 12.5px; margin-top: 1px; }
+  button {
+    width: 100%; margin-top: 18px; padding: 12px 16px; border: none; border-radius: 10px;
+    background: var(--accent); color: #1a1200; font-weight: 700; font-size: 15px; cursor: pointer;
+  }
+  button:hover { background: #ff8842; }
+  button:disabled { background: var(--surface2); color: var(--muted); cursor: default; }
+  .ghost { background: transparent; color: var(--accent); border: 1px solid var(--border); }
+  .ghost:hover { background: var(--surface2); }
+  .files { list-style: none; padding: 0; margin: 14px 0 0; }
+  .files li { font-family: ui-monospace, Menlo, monospace; font-size: 13px; color: var(--text);
+    padding: 7px 12px; background: var(--surface2); border-radius: 8px; margin-bottom: 6px; }
+  .files li::before { content: "✓ "; color: var(--ok); }
+  .center { text-align: center; }
+  .err { color: var(--err); font-size: 13px; margin-top: 12px; text-align: center; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .spin { width: 18px; height: 18px; border: 2px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; animation: sp .8s linear infinite; display: inline-block; vertical-align: -4px; }
+  @keyframes sp { to { transform: rotate(360deg); } }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Lysa Export<span class="dot">.</span></h1>
+  <p class="sub" id="subtitle">Log in with BankID to export your account data.</p>
+
+  <!-- Auth view -->
+  <div id="auth">
+    <div id="loginstart" class="center">
+      <button id="loginbtn">Log in with BankID</button>
+    </div>
+    <div class="qrwrap hidden" id="qrwrap">
+      <div class="qr"><img id="qrimg" alt="BankID QR" /></div>
+      <p class="hint">Open the <b>BankID</b> app on your phone and scan the code.<br/>
+        <span class="muted" id="authstate"><span class="spin"></span> Waiting for BankID…</span></p>
+    </div>
+    <div class="err hidden" id="autherr"></div>
+  </div>
+
+  <!-- Export view -->
+  <div id="export" class="hidden">
+    <div id="datasets"></div>
+    <button id="exportbtn">Export selected</button>
+    <div class="err hidden" id="exporterr"></div>
+  </div>
+
+  <!-- Done view -->
+  <div id="done" class="hidden">
+    <p class="center" style="font-size:15px;margin:4px 0 0">Export complete.</p>
+    <ul class="files" id="filelist"></ul>
+    <p class="muted center" id="donepath" style="margin-top:14px"></p>
+    <p class="muted center" style="margin-top:10px">The tool has finished — this container will now exit.</p>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let qrTimer = null, statusTimer = null;
+
+async function jget(url){ const r = await fetch(url); if(!r.ok) throw new Error((await r.json().catch(()=>({}))).error||('HTTP '+r.status)); return r.json(); }
+async function jpost(url, body){ const r = await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})}); const d = await r.json().catch(()=>({})); if(!r.ok) throw new Error(d.error||('HTTP '+r.status)); return d; }
+
+function refreshQR(){ $('qrimg').src = '/api/auth/qr.png?t=' + Date.now(); }
+
+async function startAuth(){
+  $('loginstart').classList.add('hidden');
+  $('qrwrap').classList.remove('hidden');
+  $('autherr').classList.add('hidden');
+  $('authstate').innerHTML = '<span class="spin"></span> Waiting for BankID…';
+  try { await jpost('/api/auth/start'); } catch(e){ return authError(e.message); }
+  refreshQR();
+  clearInterval(qrTimer); qrTimer = setInterval(refreshQR, 1000);
+  clearInterval(statusTimer); statusTimer = setInterval(pollStatus, 2000);
+}
+
+async function pollStatus(){
+  let d;
+  try { d = await jget('/api/auth/status'); }
+  catch(e){ return; } // transient; keep polling
+  if(d.status === 'complete'){ stopAuth(); showExport(); }
+  else if(d.status === 'failed' || d.status === 'idle'){ stopAuth(); authError('Login was cancelled or expired.'); }
+  else { // pending — surface hintCode niceties
+    const map = {outstandingTransaction:'Waiting for BankID…', userSign:'Complete the signing in your BankID app…', started:'Starting…'};
+    $('authstate').innerHTML = '<span class="spin"></span> ' + (map[d.hintCode] || 'Waiting for BankID…');
+  }
+}
+
+function stopAuth(){ clearInterval(qrTimer); clearInterval(statusTimer); }
+function authError(msg){
+  stopAuth();
+  $('authstate').innerHTML = '<button class="ghost" onclick="startAuth()" style="margin-top:8px;width:auto;padding:8px 16px">Try again</button>';
+  $('autherr').textContent = msg; $('autherr').classList.remove('hidden');
+}
+
+async function showExport(){
+  $('auth').classList.add('hidden');
+  $('subtitle').textContent = 'Choose what to export.';
+  const sets = await jget('/api/datasets');
+  $('datasets').innerHTML = sets.map(d => `
+    <div class="row"><label>
+      <input type="checkbox" value="${d.key}" checked />
+      <span><span class="name">${d.label}</span><div class="desc">${d.desc}</div></span>
+    </label></div>`).join('');
+  $('export').classList.remove('hidden');
+}
+
+$('exportbtn').addEventListener('click', async () => {
+  const picked = [...document.querySelectorAll('#datasets input:checked')].map(i=>i.value);
+  if(!picked.length){ return; }
+  const btn = $('exportbtn'); btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Exporting…';
+  $('exporterr').classList.add('hidden');
+  try {
+    const d = await jpost('/api/export', {datasets: picked});
+    $('export').classList.add('hidden');
+    $('subtitle').textContent = '';
+    $('filelist').innerHTML = d.files.map(f=>`<li>${f}</li>`).join('');
+    $('donepath').textContent = 'Saved to ' + d.outDir + ' (mapped volume on your host).';
+    $('done').classList.remove('hidden');
+  } catch(e){
+    btn.disabled = false; btn.textContent = 'Export selected';
+    $('exporterr').textContent = e.message; $('exporterr').classList.remove('hidden');
+  }
+});
+
+$('loginbtn').addEventListener('click', startAuth);
+</script>
+</body>
+</html>

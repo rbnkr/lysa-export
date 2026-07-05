@@ -1,0 +1,8 @@
+# build output
+/lysa-export
+# local export output
+/out/
+/lysa-export-out/
+# env
+*.env
+.env
