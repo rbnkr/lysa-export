@@ -203,8 +203,7 @@ function renderHoldings(p){
 
   const wrap=el('div','cards'); p.appendChild(wrap);
   const c=el('div','card'); wrap.appendChild(c);
-  c.appendChild(el('h2',null,'Your actual underlying holdings'));
-  c.appendChild(el('p','sub','Each position weighted through its Lysa fund to the underlying securities, aggregated across accounts. “Other holdings” is the part a fund does not itemise — Lysa only discloses each fund’s largest positions.'));
+  c.appendChild(el('h2',null,'Underlying holdings'));
   c.appendChild(el('table','lt',
     `<thead><tr><th>Holding</th><th>ISIN</th><th>Value</th><th>Weight</th></tr></thead>
      <tbody>${aggRows.map(r=>{const w=total?r.value/total*100:0;
