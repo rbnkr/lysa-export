@@ -64,6 +64,12 @@
   .bar>span{display:block;height:100%;background:var(--accent)}
   .fundhdr{margin:16px 0 6px;font-size:13.5px}
   .fundhdr .m{color:var(--muted);font-size:12px}
+  table.lt{table-layout:fixed}
+  table.lt th:nth-child(2),table.lt td:nth-child(2){width:160px}
+  table.lt th:nth-child(3),table.lt td:nth-child(3){width:140px}
+  table.lt th:nth-child(4),table.lt td:nth-child(4){width:96px}
+  table.lt td:first-child{overflow:hidden;text-overflow:ellipsis}
+  .muted-row td{color:var(--muted)}
 </style>
 </head>
 <body>
@@ -197,20 +203,18 @@ function renderHoldings(p){
 
   const c=el('div','card'); p.appendChild(c);
   c.appendChild(el('h2',null,'Your actual underlying holdings'));
-  c.appendChild(el('p','sub','Every position weighted through its Lysa fund down to the underlying securities, aggregated across accounts.'));
-  const sc=el('div','scroll'); c.appendChild(sc);
-  sc.appendChild(el('table',null,
+  c.appendChild(el('p','sub','Each position weighted through its Lysa fund to the underlying securities, aggregated across accounts. “Other holdings” is the part a fund does not itemise — Lysa only discloses each fund’s largest positions.'));
+  c.appendChild(el('table','lt',
     `<thead><tr><th>Holding</th><th>ISIN</th><th>Value</th><th>Weight</th></tr></thead>
      <tbody>${aggRows.map(r=>{const w=total?r.value/total*100:0;
-       return `<tr><td>${r.name||''}</td><td class="mono">${r.isin||''}</td><td>${kr(r.value)}</td>
-         <td>${alloc(w)}<div class="bar"><span style="width:${Math.min(100,w).toFixed(2)}%"></span></div></td></tr>`;}).join('')}</tbody>`));
+       return `<tr${r.isin?'':' class="muted-row"'}><td>${r.name||''}</td><td class="mono">${r.isin||''}</td><td>${kr(r.value)}</td><td>${alloc(w)}</td></tr>`;}).join('')}</tbody>`));
 
   const c2=el('div','card'); p.appendChild(c2);
   c2.appendChild(el('h2',null,'By fund'));
   for(const pf of perFund){
     c2.appendChild(el('div','fundhdr',`<b>${pf.fund}</b> <span class="mono m">${pf.isin}</span> · ${kr(pf.worth)} · <span class="m">${pf.account}</span>`));
-    if(pf.hasData && pf.rows.length) c2.appendChild(el('table',null,
-      `<tbody>${pf.rows.map(r=>`<tr><td>${r.name||''}${r.extra>0?' <span class="m" style="color:var(--muted)">(+'+r.extra+')</span>':''}</td>
+    if(pf.hasData && pf.rows.length) c2.appendChild(el('table','lt',
+      `<tbody>${pf.rows.map(r=>`<tr${r.isin?'':' class="muted-row"'}><td>${r.name||''}${r.extra>0?' <span style="color:var(--muted)">(+'+r.extra+')</span>':''}</td>
         <td class="mono">${r.isin||''}</td><td>${kr(r.value)}</td><td>${alloc(r.pct)}</td></tr>`).join('')}</tbody>`));
     else c2.appendChild(el('p','sub','No look-through data for this fund.'));
   }
