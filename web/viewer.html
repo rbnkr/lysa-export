@@ -103,7 +103,7 @@ function boot(){
 
   const tabs=[];
   if(accounts||OUT.profile||OUT.tax||OUT.documents) tabs.push(['overview','Overview',renderOverview]);
-  if(accounts&&OUT.funds) tabs.push(['holdings','Look-through',renderHoldings]);
+  if(accounts&&OUT.funds) tabs.push(['holdings','Holdings',renderHoldings]);
   if(performance)      tabs.push(['performance','Performance',renderPerformance]);
   if(OUT.transactions) tabs.push(['transactions','Transactions',renderTransactions]);
   if(OUT.fees)         tabs.push(['fees','Fees',renderFees]);
