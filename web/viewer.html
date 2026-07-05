@@ -201,7 +201,8 @@ function renderHoldings(p){
   }
   const aggRows=Object.values(agg).sort((x,y)=>y.value-x.value);
 
-  const c=el('div','card'); p.appendChild(c);
+  const wrap=el('div','cards'); p.appendChild(wrap);
+  const c=el('div','card'); wrap.appendChild(c);
   c.appendChild(el('h2',null,'Your actual underlying holdings'));
   c.appendChild(el('p','sub','Each position weighted through its Lysa fund to the underlying securities, aggregated across accounts. “Other holdings” is the part a fund does not itemise — Lysa only discloses each fund’s largest positions.'));
   c.appendChild(el('table','lt',
@@ -209,7 +210,7 @@ function renderHoldings(p){
      <tbody>${aggRows.map(r=>{const w=total?r.value/total*100:0;
        return `<tr${r.isin?'':' class="muted-row"'}><td>${r.name||''}</td><td class="mono">${r.isin||''}</td><td>${kr(r.value)}</td><td>${alloc(w)}</td></tr>`;}).join('')}</tbody>`));
 
-  const c2=el('div','card'); p.appendChild(c2);
+  const c2=el('div','card'); wrap.appendChild(c2);
   c2.appendChild(el('h2',null,'By fund'));
   for(const pf of perFund){
     c2.appendChild(el('div','fundhdr',`<b>${pf.fund}</b> <span class="mono m">${pf.isin}</span> · ${kr(pf.worth)} · <span class="m">${pf.account}</span>`));
