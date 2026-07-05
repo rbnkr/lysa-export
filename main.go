@@ -7,7 +7,6 @@
 package main
 
 import (
-	"context"
 	_ "embed"
 	"encoding/json"
 	"log"
@@ -37,7 +36,6 @@ type server struct {
 	mu       sync.Mutex
 	client   *lysa.Client
 	orderRef string
-	kaOnce   sync.Once
 }
 
 func main() {
@@ -123,9 +121,6 @@ func (s *server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
 	}
-	if status == "complete" {
-		s.startKeepAlive(c)
-	}
 	writeJSON(w, http.StatusOK, map[string]string{"status": status, "hintCode": hint})
 }
 
@@ -161,22 +156,6 @@ func (s *server) handleExport(w http.ResponseWriter, r *http.Request) {
 		log.Printf("export complete (%d files) — exiting", len(files))
 		os.Exit(0)
 	}()
-}
-
-// startKeepAlive pings /login/keep-alive periodically so a slow user selecting
-// checkboxes doesn't hit the 30-min token expiry. Runs at most once.
-func (s *server) startKeepAlive(c *lysa.Client) {
-	s.kaOnce.Do(func() {
-		go func() {
-			t := time.NewTicker(15 * time.Minute)
-			defer t.Stop()
-			for range t.C {
-				if err := c.KeepAlive(context.Background()); err != nil {
-					return
-				}
-			}
-		}()
-	})
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

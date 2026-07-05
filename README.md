@@ -52,8 +52,9 @@ OUT_DIR=./lysa-export-out go run .
    to disk or logged.
 4. The selected data endpoints are fetched and written out; the process exits.
 
-The session token lasts ~30 minutes and is refreshed via `/login/keep-alive`
-while you're choosing datasets.
+The session token lasts ~30 minutes — far longer than the couple of minutes the
+whole export takes — so there's no session-refresh machinery. If you log in and
+then walk away for half an hour before exporting, just restart and log in again.
 
 ## Configuration
 

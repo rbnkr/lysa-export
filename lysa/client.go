@@ -3,9 +3,10 @@
 // endpoints used to export your own account data.
 //
 // Auth model: BankID login yields a short-lived `lysa-token` JWT cookie
-// (~30 min), refreshed by /login/keep-alive. This client tracks that token
-// manually and replays it as a Cookie header on data calls. `x-app-id` is a
-// cosmetic per-session id, not validated against the token.
+// (~30 min). This client tracks that token manually and replays it as a Cookie
+// header on data calls. `x-app-id` is a cosmetic per-session id, not validated
+// against the token. The whole export runs in a couple of minutes, well inside
+// the token's lifetime, so there's no session-refresh machinery.
 package lysa
 
 import (
@@ -141,7 +142,7 @@ func (c *Client) QRCode(ctx context.Context, orderRef string) (string, error) {
 }
 
 // Collect polls login status. On "complete" it captures the lysa-token cookie
-// from the Set-Cookie header (same mechanic as keep-alive).
+// from the Set-Cookie header.
 func (c *Client) Collect(ctx context.Context, orderRef string) (status, hintCode string, err error) {
 	body, resp, err := c.request(ctx, "GET", "/bankid/login/"+url.PathEscape(orderRef)+"?hash="+c.buildHash)
 	if err != nil {
@@ -161,16 +162,6 @@ func (c *Client) Collect(ctx context.Context, orderRef string) (status, hintCode
 		}
 	}
 	return r.Status, r.HintCode, nil
-}
-
-// KeepAlive re-issues the token (sliding session), extending the 30-min expiry.
-func (c *Client) KeepAlive(ctx context.Context) error {
-	_, resp, err := c.request(ctx, "GET", "/login/keep-alive")
-	if err != nil {
-		return err
-	}
-	c.captureToken(resp)
-	return nil
 }
 
 // --- data endpoints (raw JSON) ---
