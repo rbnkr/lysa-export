@@ -57,6 +57,15 @@
   svg .gtext{fill:var(--muted);font-size:11px}
   svg .cross{stroke:#4a4a54;stroke-dasharray:3 3}
   svg .dot{fill:var(--accent);stroke:#0e0e10;stroke-width:2}
+  svg .lanesep{stroke:#24242b}
+  svg .evtdot{opacity:.85;stroke:#0e0e10;stroke-width:.5}
+  svg .evtdot.dep{fill:var(--ok)}
+  svg .evtdot.wd{fill:var(--red)}
+  .chartlegend{display:flex;gap:16px;align-items:center;color:var(--muted);font-size:12px;margin-top:10px}
+  .chartlegend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:middle}
+  .chartlegend i.dep{background:var(--ok)}.chartlegend i.wd{background:var(--red)}
+  svg .yr{stroke:#33333d;stroke-dasharray:2 4}
+  svg .yrtext{fill:#6a6a72;font-size:11px}
   .tip{position:absolute;pointer-events:none;background:#000;border:1px solid var(--border);border-radius:8px;padding:6px 9px;font-size:12px;opacity:0;transition:opacity .08s;white-space:nowrap}
   .tip b{color:var(--accent)}
   .empty{color:var(--muted);padding:40px;text-align:center}
@@ -229,28 +238,63 @@ function renderPerformance(p){
      <div class="stat"><div class="k">Total return</div><div class="v ${sign(perf.totalEarnings)}">${kr(perf.totalEarnings)}</div></div>
      <div class="stat"><div class="k">Change</div><div class="v ${sign(perf.totalChange)}">${pct(perf.totalChange)}</div></div>
      <div class="stat"><div class="k">Period</div><div class="v" style="font-size:15px;font-weight:600">${day(g[0]&&g[0].date)} → ${day(g[g.length-1]&&g[g.length-1].date)}</div></div>`));
-  card.appendChild(buildChart(g));
+  card.appendChild(buildChart(g, cashflowEvents(OUT.transactions)));
 }
 
-function buildChart(g){
-  const W=1000,H=340,pl=6,pr=6,pt=18,pb=26, n=g.length;
+// Deposits/withdrawals per day (only cash flows — buys/sells don't change total value).
+function cashflowEvents(txs){
+  const m={};
+  for(const t of (txs||[])){
+    if(t.type!=='DEPOSIT' && t.type!=='WITHDRAWAL') continue;
+    const d=(t.booked||'').slice(0,10); if(!d) continue;
+    const c=m[d]||{deposit:0,withdrawal:0};
+    if(t.type==='DEPOSIT') c.deposit+=t.amount||0; else c.withdrawal+=Math.abs(t.amount||0);
+    m[d]=c;
+  }
+  return m;
+}
+function snapIdx(g,date){ let lo=0,hi=g.length-1,ans=g.length-1;
+  while(lo<=hi){ const mid=(lo+hi)>>1; if(g[mid].date>=date){ans=mid;hi=mid-1;} else lo=mid+1; } return ans; }
+
+function buildChart(g, events){
+  events=events||{};
+  const W=1000,H=380,pl=6,pr=6,pt=18,axis=24,laneH=44, n=g.length;
   if(!n){ return el('div','empty','No performance data.'); }
+  const plotB=H-axis-laneH, laneY=plotB+laneH/2;
   let minY=Infinity,maxY=-Infinity;
   for(const d of g){ if(d.worth<minY)minY=d.worth; if(d.worth>maxY)maxY=d.worth; }
   const pad=(maxY-minY)*0.06||1; minY-=pad; maxY+=pad;
   const X=i=> pl+(i/(n-1))*(W-pl-pr);
-  const Y=v=> pt+(1-(v-minY)/(maxY-minY))*(H-pt-pb);
+  const Y=v=> pt+(1-(v-minY)/(maxY-minY))*(plotB-pt);
+  // snap events to graph indices, track max for dot scaling
+  const evt={}; let maxAmt=0;
+  for(const date in events){ const i=snapIdx(g,date); const c=evt[i]||{deposit:0,withdrawal:0};
+    c.deposit+=events[date].deposit; c.withdrawal+=events[date].withdrawal; evt[i]=c;
+    maxAmt=Math.max(maxAmt,c.deposit,c.withdrawal); }
+  const rOf=a=> a<=0?0:1.6+Math.sqrt(a/maxAmt)*5.4;
   let d='M'+X(0).toFixed(1)+' '+Y(g[0].worth).toFixed(1);
   for(let i=1;i<n;i++) d+=' L'+X(i).toFixed(1)+' '+Y(g[i].worth).toFixed(1);
-  const area=d+` L${X(n-1).toFixed(1)} ${H-pb} L${X(0).toFixed(1)} ${H-pb} Z`;
+  const area=d+` L${X(n-1).toFixed(1)} ${plotB} L${X(0).toFixed(1)} ${plotB} Z`;
   let grid='';
   for(let k=0;k<=4;k++){ const v=minY+(maxY-minY)*k/4, y=Y(v).toFixed(1);
     grid+=`<line class="grid" x1="${pl}" y1="${y}" x2="${W-pr}" y2="${y}"/><text class="gtext" x="${pl+2}" y="${(+y-3).toFixed(1)}">${kr(v)}</text>`; }
+  let years='', prevYr=null;
+  for(let i=0;i<n;i++){ const yr=g[i].date.slice(0,4);
+    if(yr!==prevYr){ if(prevYr!==null){ const x=X(i).toFixed(1);
+      years+=`<line class="yr" x1="${x}" y1="${pt}" x2="${x}" y2="${plotB+laneH}"/><text class="yrtext" x="${(+x+3).toFixed(1)}" y="${H-8}">${yr}</text>`; }
+      prevYr=yr; } }
+  let dots='';
+  for(const i in evt){ const x=X(+i).toFixed(1), e=evt[i];
+    if(e.deposit>0) dots+=`<circle class="evtdot dep" cx="${x}" cy="${laneY}" r="${rOf(e.deposit).toFixed(1)}"/>`;
+    if(e.withdrawal>0) dots+=`<circle class="evtdot wd" cx="${x}" cy="${laneY}" r="${rOf(e.withdrawal).toFixed(1)}"/>`; }
   const wrap=el('div','chartwrap');
   wrap.innerHTML=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
-    ${grid}<path class="area" d="${area}"/><path class="line" d="${d}"/>
-    <line class="cross" id="cx" x1="0" y1="${pt}" x2="0" y2="${H-pb}" style="opacity:0"/>
-    <circle class="dot" id="cd" r="4" style="opacity:0"/></svg><div class="tip" id="tip"></div>`;
+    ${grid}<path class="area" d="${area}"/>${years}<path class="line" d="${d}"/>
+    <line class="lanesep" x1="${pl}" y1="${plotB}" x2="${W-pr}" y2="${plotB}"/>${dots}
+    <line class="cross" id="cx" x1="0" y1="${pt}" x2="0" y2="${plotB+laneH}" style="opacity:0"/>
+    <circle class="dot" id="cd" r="4" style="opacity:0"/></svg>
+    <div class="tip" id="tip"></div>
+    <div class="chartlegend"><span><i class="dep"></i>Deposit</span><span><i class="wd"></i>Withdrawal</span><span style="color:var(--muted)">dot size ∝ amount</span></div>`;
   const svg=wrap.querySelector('svg'), cx=wrap.querySelector('#cx'), cd=wrap.querySelector('#cd'), tip=wrap.querySelector('#tip');
   svg.addEventListener('mousemove',e=>{
     const r=svg.getBoundingClientRect(); const sx=(e.clientX-r.left)/r.width*W;
@@ -258,7 +302,10 @@ function buildChart(g){
     const gx=X(i),gy=Y(g[i].worth);
     cx.setAttribute('x1',gx);cx.setAttribute('x2',gx);cx.style.opacity=1;
     cd.setAttribute('cx',gx);cd.setAttribute('cy',gy);cd.style.opacity=1;
-    tip.innerHTML=`${g[i].date} · <b>${kr(g[i].worth)}</b> · ${pct(g[i].change)}`;
+    const ev=evt[i]||evt[i-1]||evt[i+1];
+    let extra='';
+    if(ev){ const b=[]; if(ev.deposit>0)b.push('<span style="color:var(--ok)">Deposit '+kr(ev.deposit)+'</span>'); if(ev.withdrawal>0)b.push('<span style="color:var(--red)">Withdrawal '+kr(ev.withdrawal)+'</span>'); if(b.length) extra=' · '+b.join(' · '); }
+    tip.innerHTML=`${g[i].date} · <b>${kr(g[i].worth)}</b> · ${pct(g[i].change)}${extra}`;
     tip.style.opacity=1;
     const px=(gx/W)*r.width; tip.style.left=Math.min(r.width-tip.offsetWidth-4,Math.max(0,px-tip.offsetWidth/2))+'px';
     tip.style.top='-4px';
