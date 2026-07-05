@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lysa data</title>
+<style>
+  :root{
+    --bg:#0e0e10;--surface:#16161a;--surface2:#1e1e24;--border:#2a2a31;
+    --text:#ececf1;--muted:#8b8b94;--accent:#f17730;--ok:#3fb950;--red:#f85149;--blue:#589bf2;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:14.5px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+  header{padding:20px 24px;border-bottom:1px solid var(--border);display:flex;align-items:baseline;gap:16px;flex-wrap:wrap}
+  header h1{font-size:19px;margin:0;letter-spacing:-.01em}
+  header h1 .dot{color:var(--accent)}
+  header .tot{margin-left:auto;color:var(--muted);font-size:13px}
+  header .tot b{color:var(--text);font-size:17px}
+  nav{display:flex;gap:4px;padding:10px 24px 0;border-bottom:1px solid var(--border);flex-wrap:wrap}
+  nav button{background:none;border:none;color:var(--muted);font:inherit;font-weight:600;padding:9px 14px;cursor:pointer;border-bottom:2px solid transparent}
+  nav button.on{color:var(--text);border-bottom-color:var(--accent)}
+  main{max-width:1080px;margin:0 auto;padding:22px 24px 60px}
+  .panel{display:none}.panel.on{display:block}
+  .cards{display:grid;gap:16px}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 20px}
+  .card h2{font-size:15px;margin:0 0 2px}
+  .card .sub{color:var(--muted);font-size:12.5px;margin:0 0 14px}
+  .stats{display:flex;gap:28px;flex-wrap:wrap;margin-bottom:18px}
+  .stat .k{color:var(--muted);font-size:12px}
+  .stat .v{font-size:22px;font-weight:700;letter-spacing:-.02em}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{text-align:right;padding:7px 10px;white-space:nowrap}
+  th:first-child,td:first-child{text-align:left}
+  thead th{color:var(--muted);font-weight:600;border-bottom:1px solid var(--border);cursor:pointer;user-select:none}
+  tbody tr{border-bottom:1px solid #202027}
+  tbody tr:hover{background:#1a1a20}
+  tfoot td{border-top:1px solid var(--border);font-weight:700}
+  .mono{font-family:ui-monospace,Menlo,monospace}
+  .pos{color:var(--ok)}.neg{color:var(--red)}
+  .badge{display:inline-block;padding:1px 8px;border-radius:20px;font-size:11.5px;font-weight:700}
+  .b-BUY{background:#12331e;color:#5fd07e}.b-SELL{background:#3a1417;color:#f88}
+  .b-DEPOSIT{background:#3a2410;color:#f5a962}.b-WITHDRAWAL{background:#2a2438;color:#b79cf0}
+  .b-FEE{background:#26262c;color:#a6a6b0}.b-SWITCH_BUY,.b-SWITCH_SELL{background:#10303a;color:#6cc7e0}
+  .controls{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;align-items:center}
+  .controls input,.controls select{background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font:inherit}
+  .controls input{flex:1;min-width:160px}
+  .count{color:var(--muted);font-size:12.5px;margin-left:auto}
+  .scroll{max-height:64vh;overflow:auto;border:1px solid var(--border);border-radius:12px}
+  .scroll table thead th{position:sticky;top:0;background:var(--surface)}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:6px 18px;font-size:13.5px}
+  .kv .k{color:var(--muted)}
+  .decl{color:#cfcfd6;font-size:13px;line-height:1.55;margin:10px 0 0;padding:12px 14px;background:var(--surface2);border-radius:10px}
+  .chartwrap{position:relative}
+  svg .area{fill:var(--accent);opacity:.10}
+  svg .line{fill:none;stroke:var(--accent);stroke-width:2}
+  svg .grid{stroke:#24242b}
+  svg .gtext{fill:var(--muted);font-size:11px}
+  svg .cross{stroke:#4a4a54;stroke-dasharray:3 3}
+  svg .dot{fill:var(--accent);stroke:#0e0e10;stroke-width:2}
+  .tip{position:absolute;pointer-events:none;background:#000;border:1px solid var(--border);border-radius:8px;padding:6px 9px;font-size:12px;opacity:0;transition:opacity .08s;white-space:nowrap}
+  .tip b{color:var(--accent)}
+  .empty{color:var(--muted);padding:40px;text-align:center}
+  .bar{height:6px;background:var(--surface2);border-radius:4px;overflow:hidden;margin-top:3px}
+  .bar>span{display:block;height:100%;background:var(--accent)}
+  .fundhdr{margin:16px 0 6px;font-size:13.5px}
+  .fundhdr .m{color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Lysa data<span class="dot">.</span></h1>
+  <div class="tot" id="totworth"></div>
+</header>
+<nav id="nav"></nav>
+<main id="main"></main>
+
+<script>
+// Data is embedded at export time (self-contained, works offline via file://).
+const OUT = __LYSA_DATA__;
+const $ = s => document.querySelector(s);
+const el = (t,c,h) => { const e=document.createElement(t); if(c)e.className=c; if(h!=null)e.innerHTML=h; return e; };
+
+const kr   = n => new Intl.NumberFormat('sv-SE',{style:'currency',currency:'SEK',maximumFractionDigits:0}).format(n||0);
+const kr2  = n => new Intl.NumberFormat('sv-SE',{style:'currency',currency:'SEK',minimumFractionDigits:2,maximumFractionDigits:2}).format(n||0);
+const vol  = n => n ? new Intl.NumberFormat('sv-SE',{maximumFractionDigits:4}).format(n) : '';
+const pct  = n => (n>=0?'+':'') + new Intl.NumberFormat('sv-SE',{minimumFractionDigits:1,maximumFractionDigits:1}).format(n) + ' %';
+const alloc= n => new Intl.NumberFormat('sv-SE',{minimumFractionDigits:1,maximumFractionDigits:1}).format(n||0) + ' %';
+const day  = s => (s||'').slice(0,10);
+const sign = n => n>0?'pos':n<0?'neg':'';
+
+let acctName = {}, fundName = {}, depotByIsin = {};
+
+function boot(){
+  const accounts=OUT.accounts, performance=OUT.performance;
+  if(accounts) (accounts.investmentAccounts||[]).forEach(a=>acctName[a.accountId]=a.name||a.accountId.slice(0,8));
+  if(OUT.funds) for(const d of OUT.funds) for(const s of (d.fundShareClasses||[])){ if(s.isin){ fundName[s.isin]=s.name; depotByIsin[s.isin]=d; } }
+
+  const tabs=[];
+  if(accounts||OUT.profile||OUT.tax||OUT.documents) tabs.push(['overview','Overview',renderOverview]);
+  if(accounts&&OUT.funds) tabs.push(['holdings','Look-through',renderHoldings]);
+  if(performance)      tabs.push(['performance','Performance',renderPerformance]);
+  if(OUT.transactions) tabs.push(['transactions','Transactions',renderTransactions]);
+  if(OUT.fees)         tabs.push(['fees','Fees',renderFees]);
+  if(OUT.advice)       tabs.push(['advice','Advice',renderAdvice]);
+  const nav=$('#nav'), main=$('#main');
+  if(!tabs.length){ main.innerHTML='<div class="empty">No data in this export.</div>'; return; }
+
+  tabs.forEach(([id,label,fn],i)=>{
+    const b=el('button',i===0?'on':'',label); b.onclick=()=>{
+      document.querySelectorAll('nav button').forEach(x=>x.classList.remove('on')); b.classList.add('on');
+      document.querySelectorAll('.panel').forEach(p=>p.classList.remove('on')); $('#p-'+id).classList.add('on');
+    }; nav.appendChild(b);
+    const p=el('div','panel'+(i===0?' on':'')); p.id='p-'+id; main.appendChild(p); fn(p);
+  });
+
+  if(performance) $('#totworth').innerHTML = 'Total value &nbsp;<b>'+kr(lastWorth(performance))+'</b>';
+  else if(accounts) $('#totworth').innerHTML = 'Total value &nbsp;<b>'+kr((accounts.investmentAccounts||[]).reduce((s,a)=>s+(a.worth||0),0))+'</b>';
+}
+
+function lastWorth(p){ const g=p.graph||[]; return g.length?g[g.length-1].worth:0; }
+
+/* ---------- Overview ---------- */
+function renderOverview(p){
+  const wrap=el('div','cards'); p.appendChild(wrap);
+  const accs=(OUT.accounts&&OUT.accounts.investmentAccounts)||[];
+  for(const a of accs){
+    const c=el('div','card');
+    c.appendChild(el('h2',null, a.name+' <span class="badge" style="background:#26262c;color:#a6a6b0">'+a.type+'</span>'));
+    c.appendChild(el('p','sub','Value '+kr(a.worth)+(a.uninvestedMoney?'  ·  uninvested '+kr(a.uninvestedMoney):'')));
+    const isins=Object.keys(a.positions||{}).sort();
+    if(isins.length){
+      let cost=0,worth=0;
+      const rows=isins.map(isin=>{
+        const p=a.positions[isin], cb=p.volume*p.gav, ret=p.worth-cb, rp=cb?ret/cb*100:0;
+        cost+=cb; worth+=p.worth;
+        const nm=fundName[isin]?'<div style="color:var(--muted);font-size:11px;font-family:system-ui">'+fundName[isin]+'</div>':'';
+        return `<tr><td class="mono">${isin}${nm}</td><td>${vol(p.volume)}</td><td>${kr(cb)}</td><td>${kr(p.worth)}</td>
+          <td class="${sign(ret)}">${kr(ret)}</td><td class="${sign(ret)}">${pct(rp)}</td></tr>`;
+      }).join('');
+      const tot=worth-cost, tp=cost?tot/cost*100:0;
+      c.appendChild(el('table',null,
+        `<thead><tr><th>ISIN</th><th>Units</th><th>Cost</th><th>Value</th><th>Return</th><th>%</th></tr></thead>
+         <tbody>${rows}</tbody>
+         <tfoot><tr><td>Total</td><td></td><td>${kr(cost)}</td><td>${kr(worth)}</td>
+           <td class="${sign(tot)}">${kr(tot)}</td><td class="${sign(tot)}">${pct(tp)}</td></tr></tfoot>`));
+    }
+    wrap.appendChild(c);
+  }
+  const pr=OUT.profile;
+  if(pr){
+    const c=el('div','card'); c.appendChild(el('h2',null,'Profile'));
+    const f=[['Name',pr.name],['Personal number',pr.tin],['Email',pr.email],['Born',pr.birthday],
+      ['Country',pr.country],['Customer since',day(pr.created)],['Last login',(pr.lastLogin||'').replace('T',' ').slice(0,16)]];
+    c.appendChild(el('div','kv', f.filter(x=>x[1]).map(([k,v])=>`<div class="k">${k}</div><div>${v}</div>`).join('')));
+    wrap.appendChild(c);
+  }
+  const tax=OUT.tax;
+  if(tax&&tax.length){
+    const c=el('div','card'); c.appendChild(el('h2',null,'Tax years (ISK)'));
+    c.appendChild(el('div','kv', tax.map(t=>`<div class="k">${acctName[t.accountId]||t.accountId.slice(0,8)}</div><div>${(t.taxYears||[]).join(', ')}</div>`).join('')));
+    wrap.appendChild(c);
+  }
+  const docs=OUT.documents;
+  if(docs){
+    const c=el('div','card'); c.appendChild(el('h2',null,'Documents'));
+    let lines=[];
+    for(const k in docs){ const v=docs[k]; if(Array.isArray(v)) lines.push([k,v.length+' items']); else if(v&&typeof v==='object') lines.push([k,Object.keys(v).length+' fields']); }
+    if(!lines.length) lines=[['loaded','see documents.json']];
+    c.appendChild(el('div','kv', lines.map(([k,v])=>`<div class="k">${k}</div><div>${v}</div>`).join('')));
+    wrap.appendChild(c);
+  }
+}
+
+/* ---------- Look-through (underlying holdings) ---------- */
+function renderHoldings(p){
+  const accs=(OUT.accounts&&OUT.accounts.investmentAccounts)||[];
+  const agg={}; let total=0; const perFund=[];
+  for(const a of accs){
+    for(const isin of Object.keys(a.positions||{})){
+      const pos=a.positions[isin], dp=depotByIsin[isin]; total+=pos.worth;
+      const rows=[];
+      if(dp){
+        for(const lp of (dp.largePositions||[])){
+          const first=(lp.instruments&&lp.instruments[0])||{}, extra=(lp.instruments||[]).length-1;
+          const val=pos.worth*(+lp.percent||0)/100, key=first.isin||first.name;
+          rows.push({name:first.name, isin:first.isin, extra, pct:+lp.percent||0, value:val});
+          if(key){ (agg[key]=agg[key]||{name:first.name,isin:first.isin,value:0}).value+=val; }
+        }
+        const rem=+dp.remainingPositionsPercent||0;
+        if(rem>0){ const val=pos.worth*rem/100; rows.push({name:'Other holdings',pct:rem,value:val});
+          (agg['__rem']=agg['__rem']||{name:'Other holdings',value:0}).value+=val; }
+      }
+      perFund.push({fund:fundName[isin]||isin, isin, worth:pos.worth, account:a.name, rows, hasData:!!dp});
+    }
+  }
+  const aggRows=Object.values(agg).sort((x,y)=>y.value-x.value);
+
+  const c=el('div','card'); p.appendChild(c);
+  c.appendChild(el('h2',null,'Your actual underlying holdings'));
+  c.appendChild(el('p','sub','Every position weighted through its Lysa fund down to the underlying securities, aggregated across accounts.'));
+  const sc=el('div','scroll'); c.appendChild(sc);
+  sc.appendChild(el('table',null,
+    `<thead><tr><th>Holding</th><th>ISIN</th><th>Value</th><th>Weight</th></tr></thead>
+     <tbody>${aggRows.map(r=>{const w=total?r.value/total*100:0;
+       return `<tr><td>${r.name||''}</td><td class="mono">${r.isin||''}</td><td>${kr(r.value)}</td>
+         <td>${alloc(w)}<div class="bar"><span style="width:${Math.min(100,w).toFixed(2)}%"></span></div></td></tr>`;}).join('')}</tbody>`));
+
+  const c2=el('div','card'); p.appendChild(c2);
+  c2.appendChild(el('h2',null,'By fund'));
+  for(const pf of perFund){
+    c2.appendChild(el('div','fundhdr',`<b>${pf.fund}</b> <span class="mono m">${pf.isin}</span> · ${kr(pf.worth)} · <span class="m">${pf.account}</span>`));
+    if(pf.hasData && pf.rows.length) c2.appendChild(el('table',null,
+      `<tbody>${pf.rows.map(r=>`<tr><td>${r.name||''}${r.extra>0?' <span class="m" style="color:var(--muted)">(+'+r.extra+')</span>':''}</td>
+        <td class="mono">${r.isin||''}</td><td>${kr(r.value)}</td><td>${alloc(r.pct)}</td></tr>`).join('')}</tbody>`));
+    else c2.appendChild(el('p','sub','No look-through data for this fund.'));
+  }
+}
+
+/* ---------- Performance ---------- */
+function renderPerformance(p){
+  const perf=OUT.performance, g=perf.graph||[];
+  const card=el('div','card'); p.appendChild(card);
+  card.appendChild(el('div','stats',
+    `<div class="stat"><div class="k">Total value</div><div class="v">${kr(lastWorth(perf))}</div></div>
+     <div class="stat"><div class="k">Total return</div><div class="v ${sign(perf.totalEarnings)}">${kr(perf.totalEarnings)}</div></div>
+     <div class="stat"><div class="k">Change</div><div class="v ${sign(perf.totalChange)}">${pct(perf.totalChange)}</div></div>
+     <div class="stat"><div class="k">Period</div><div class="v" style="font-size:15px;font-weight:600">${day(g[0]&&g[0].date)} → ${day(g[g.length-1]&&g[g.length-1].date)}</div></div>`));
+  card.appendChild(buildChart(g));
+}
+
+function buildChart(g){
+  const W=1000,H=340,pl=6,pr=6,pt=18,pb=26, n=g.length;
+  if(!n){ return el('div','empty','No performance data.'); }
+  let minY=Infinity,maxY=-Infinity;
+  for(const d of g){ if(d.worth<minY)minY=d.worth; if(d.worth>maxY)maxY=d.worth; }
+  const pad=(maxY-minY)*0.06||1; minY-=pad; maxY+=pad;
+  const X=i=> pl+(i/(n-1))*(W-pl-pr);
+  const Y=v=> pt+(1-(v-minY)/(maxY-minY))*(H-pt-pb);
+  let d='M'+X(0).toFixed(1)+' '+Y(g[0].worth).toFixed(1);
+  for(let i=1;i<n;i++) d+=' L'+X(i).toFixed(1)+' '+Y(g[i].worth).toFixed(1);
+  const area=d+` L${X(n-1).toFixed(1)} ${H-pb} L${X(0).toFixed(1)} ${H-pb} Z`;
+  let grid='';
+  for(let k=0;k<=4;k++){ const v=minY+(maxY-minY)*k/4, y=Y(v).toFixed(1);
+    grid+=`<line class="grid" x1="${pl}" y1="${y}" x2="${W-pr}" y2="${y}"/><text class="gtext" x="${pl+2}" y="${(+y-3).toFixed(1)}">${kr(v)}</text>`; }
+  const wrap=el('div','chartwrap');
+  wrap.innerHTML=`<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block">
+    ${grid}<path class="area" d="${area}"/><path class="line" d="${d}"/>
+    <line class="cross" id="cx" x1="0" y1="${pt}" x2="0" y2="${H-pb}" style="opacity:0"/>
+    <circle class="dot" id="cd" r="4" style="opacity:0"/></svg><div class="tip" id="tip"></div>`;
+  const svg=wrap.querySelector('svg'), cx=wrap.querySelector('#cx'), cd=wrap.querySelector('#cd'), tip=wrap.querySelector('#tip');
+  svg.addEventListener('mousemove',e=>{
+    const r=svg.getBoundingClientRect(); const sx=(e.clientX-r.left)/r.width*W;
+    let i=Math.round((sx-pl)/(W-pl-pr)*(n-1)); i=Math.max(0,Math.min(n-1,i));
+    const gx=X(i),gy=Y(g[i].worth);
+    cx.setAttribute('x1',gx);cx.setAttribute('x2',gx);cx.style.opacity=1;
+    cd.setAttribute('cx',gx);cd.setAttribute('cy',gy);cd.style.opacity=1;
+    tip.innerHTML=`${g[i].date} · <b>${kr(g[i].worth)}</b> · ${pct(g[i].change)}`;
+    tip.style.opacity=1;
+    const px=(gx/W)*r.width; tip.style.left=Math.min(r.width-tip.offsetWidth-4,Math.max(0,px-tip.offsetWidth/2))+'px';
+    tip.style.top='-4px';
+  });
+  svg.addEventListener('mouseleave',()=>{cx.style.opacity=0;cd.style.opacity=0;tip.style.opacity=0;});
+  return wrap;
+}
+
+/* ---------- Transactions ---------- */
+function renderTransactions(p){
+  const txs=(OUT.transactions||[]).slice();
+  const types=[...new Set(txs.map(t=>t.type))].sort();
+  const accts=[...new Set(txs.map(t=>t.accountId))];
+  const card=el('div','card'); p.appendChild(card);
+  card.appendChild(el('div','controls',
+    `<input id="q" placeholder="Search ISIN, type, contract note…"/>
+     <select id="ft"><option value="">All types</option>${types.map(t=>`<option>${t}</option>`).join('')}</select>
+     <select id="fa"><option value="">All accounts</option>${accts.map(a=>`<option value="${a}">${acctName[a]||a.slice(0,8)}</option>`).join('')}</select>
+     <span class="count" id="cnt"></span>`));
+  const sc=el('div','scroll'); card.appendChild(sc);
+  const tbl=el('table',null,
+    `<thead><tr>
+       <th data-k="booked">Date</th><th data-k="type">Type</th><th data-k="isin">ISIN</th>
+       <th data-k="volume">Units</th><th data-k="amount">Amount</th><th data-k="depositChannel">Channel</th><th>Account</th>
+     </tr></thead><tbody></tbody>`);
+  sc.appendChild(tbl);
+  let sortK='booked', sortDir=-1;
+  const draw=()=>{
+    const q=$('#q').value.trim().toLowerCase(), ft=$('#ft').value, fa=$('#fa').value;
+    let rows=txs.filter(t=>
+      (!ft||t.type===ft)&&(!fa||t.accountId===fa)&&
+      (!q||[t.isin,t.type,t.contractNoteId,t.depositChannel].some(v=>(v||'').toLowerCase().includes(q))));
+    rows.sort((a,b)=>{ let x=a[sortK],y=b[sortK]; if(typeof x==='number'||typeof y==='number'){x=+x||0;y=+y||0;}
+      else{x=(x||'')+'';y=(y||'')+'';} return (x<y?-1:x>y?1:0)*sortDir; });
+    tbl.querySelector('tbody').innerHTML = rows.map(t=>
+      `<tr><td>${(t.booked||'').replace('T',' ').slice(0,16)}</td>
+        <td><span class="badge b-${t.type}">${t.type}</span></td>
+        <td class="mono">${t.isin||''}${t.isin&&fundName[t.isin]?'<div style="color:var(--muted);font-size:11px;font-family:system-ui">'+fundName[t.isin]+'</div>':''}</td><td>${vol(t.volume)}</td>
+        <td class="${t.type==='WITHDRAWAL'||t.type==='FEE'||t.type==='SELL'?'neg':''}">${kr2(t.amount)}</td>
+        <td>${t.depositChannel||t.bank||''}</td><td>${acctName[t.accountId]||t.accountId.slice(0,8)}</td></tr>`).join('');
+    $('#cnt').textContent = rows.length+' of '+txs.length;
+  };
+  tbl.querySelectorAll('th[data-k]').forEach(th=>th.onclick=()=>{
+    const k=th.dataset.k; if(sortK===k)sortDir*=-1; else{sortK=k;sortDir=k==='booked'?-1:1;} draw(); });
+  ['q','ft','fa'].forEach(id=>$('#'+id).addEventListener('input',draw));
+  draw();
+}
+
+/* ---------- Fees ---------- */
+function renderFees(p){
+  const fees=(OUT.fees||[]).slice().sort((a,b)=> a.date<b.date?1:-1);
+  const total=fees.reduce((s,f)=>s+(f.fee||0),0), exvat=fees.reduce((s,f)=>s+(f.feeExcludingVat||0),0);
+  const card=el('div','card'); p.appendChild(card);
+  card.appendChild(el('div','stats',
+    `<div class="stat"><div class="k">Total fees paid</div><div class="v">${kr(total)}</div></div>
+     <div class="stat"><div class="k">Excl. VAT</div><div class="v">${kr(exvat)}</div></div>
+     <div class="stat"><div class="k">Charges</div><div class="v">${fees.length}</div></div>`));
+  const sc=el('div','scroll'); card.appendChild(sc);
+  sc.appendChild(el('table',null,
+    `<thead><tr><th>Date</th><th>Fee</th><th>Excl. VAT</th><th>Transaction</th></tr></thead>
+     <tbody>${fees.map(f=>`<tr><td>${day(f.date)}</td><td>${kr2(f.fee)}</td><td>${kr2(f.feeExcludingVat)}</td><td class="mono">${f.transactionId||''}</td></tr>`).join('')}</tbody>`));
+}
+
+/* ---------- Advice ---------- */
+function renderAdvice(p){
+  const wrap=el('div','cards'); p.appendChild(wrap);
+  for(const a of (OUT.advice||[])){
+    const c=el('div','card');
+    c.appendChild(el('h2',null, (acctName[a.accountId]||a.accountId.slice(0,8))));
+    c.appendChild(el('div','stats',
+      `<div class="stat"><div class="k">Advised risk</div><div class="v">${a.advisedRisk}%</div></div>
+       <div class="stat"><div class="k">Taken risk</div><div class="v">${a.takenRisk}%</div></div>
+       <div class="stat"><div class="k">Horizon</div><div class="v" style="font-size:15px;font-weight:600">${(a.savingsHorizon||'').toLowerCase()}</div></div>
+       <div class="stat"><div class="k">Focus</div><div class="v" style="font-size:15px;font-weight:600">${(a.investmentType||'').toLowerCase()}</div></div>`));
+    if(a.declaration) c.appendChild(el('div','decl',a.declaration));
+    wrap.appendChild(c);
+  }
+}
+
+boot();
+</script>
+</body>
+</html>

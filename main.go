@@ -23,6 +23,9 @@ import (
 //go:embed web/index.html
 var indexHTML []byte
 
+//go:embed web/viewer.html
+var viewerHTML []byte
+
 // defaultBuildHash is the SPA `hash` value observed on api.lysa.se login calls.
 // If login starts 4xx-ing after a Lysa frontend deploy, grab a fresh hash from
 // any api.lysa.se request URL and pass it via LYSA_BUILD_HASH.
@@ -145,12 +148,12 @@ func (s *server) handleExport(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request body"})
 		return
 	}
-	files, err := c.Export(r.Context(), s.outDir, req.Datasets)
+	dir, files, err := c.Export(r.Context(), s.outDir, req.Datasets, string(viewerHTML))
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "files": files})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"files": files, "outDir": s.outDir})
+	writeJSON(w, http.StatusOK, map[string]any{"files": files, "outDir": dir})
 
 	// Job done: exit so the container stops.
 	go func() {
