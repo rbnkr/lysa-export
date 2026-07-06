@@ -24,7 +24,7 @@ type Dataset struct {
 
 // Datasets is the list offered in the UI, in display order.
 var Datasets = []Dataset{
-	{"accounts", "Accounts & holdings", "Current positions per account (ISIN, volume, worth, average cost)"},
+	{"accounts", "Accounts & holdings", "Current positions per account (ISIN, volume, worth, average cost), incl. savings accounts"},
 	{"transactions", "Transaction history", "Every transaction (buys, sells, deposits, fees, switches) with ISINs"},
 	{"performance", "Performance", "Daily portfolio value series + total return"},
 	{"profile", "Profile", "Legal entity / KYC (name, personal number, email)"},
@@ -256,6 +256,39 @@ func (c *Client) Build(ctx context.Context, selected []string, viewerTmpl string
 		}
 	}
 
+	// Savings-account interest: accrued per account + the current effective
+	// rate. Only fetched when the accounts dataset shows savings accounts.
+	if sel["accounts"] && len(accs.SavingsAccounts) > 0 {
+		type accrued struct {
+			AccountID string          `json:"accountId"`
+			Data      json.RawMessage `json:"data,omitempty"`
+			Error     string          `json:"error,omitempty"`
+		}
+		out := struct {
+			EffectiveInterestRate json.RawMessage `json:"effectiveInterestRate,omitempty"`
+			RateError             string          `json:"rateError,omitempty"`
+			Accrued               []accrued       `json:"accrued"`
+		}{}
+		if data, err := c.SavingsInterestRate(ctx); err != nil {
+			out.RateError = err.Error()
+		} else {
+			out.EffectiveInterestRate = data
+		}
+		for _, acc := range accs.SavingsAccounts {
+			a := accrued{AccountID: acc.AccountID}
+			if data, err := c.SavingsInterestAccrued(ctx, acc.AccountID); err != nil {
+				a.Error = err.Error()
+			} else {
+				a.Data = data
+			}
+			out.Accrued = append(out.Accrued, a)
+		}
+		b, _ := json.Marshal(out)
+		if err := addJSON("savings_interest", b); err != nil {
+			return nil, err
+		}
+	}
+
 	if viewerTmpl != "" {
 		files["viewer.html"] = buildViewer(viewerTmpl, raws)
 	}
@@ -346,18 +379,31 @@ type accountsResp struct {
 			Type   string  `json:"type"`
 		} `json:"positions"`
 	} `json:"investmentAccounts"`
+	// Savings accounts ride along in the raw accounts.json; only the fields
+	// needed for the perf-series start and per-account interest calls are
+	// parsed here.
+	SavingsAccounts []struct {
+		AccountID string `json:"accountId"`
+		Name      string `json:"name"`
+		Created   string `json:"created"`
+	} `json:"savingsAccounts"`
 }
 
 func (a *accountsResp) earliestCreated() string {
 	best := ""
-	for _, acc := range a.InvestmentAccounts {
-		d := acc.Created
+	upd := func(d string) {
 		if len(d) >= 10 {
 			d = d[:10]
 		}
 		if d != "" && (best == "" || d < best) {
 			best = d
 		}
+	}
+	for _, acc := range a.InvestmentAccounts {
+		upd(acc.Created)
+	}
+	for _, acc := range a.SavingsAccounts {
+		upd(acc.Created)
 	}
 	return best
 }

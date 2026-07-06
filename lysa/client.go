@@ -184,6 +184,10 @@ const (
 	pathFundsHoldings = "/funds/data/holdings?isins="
 	// pathFeeAccount: bundle literal is `/fees/account/${e}`.
 	pathFeeAccount = "/fees/account/"
+	// pathSavingsInterestAccrued: bundle literal is
+	// `/savings-account-interest/interest/accrued/${e}`.
+	pathSavingsInterestAccrued = "/savings-account-interest/interest/accrued/"
+	pathSavingsInterestRate    = "/savings-account/interest-rate/effective"
 )
 
 // DataPaths is the set of path literals CheckAPI verifies against the SPA
@@ -194,6 +198,7 @@ var DataPaths = []string{
 	pathAccountsAll, pathTransactions, pathPerformance, pathLegalEntity,
 	pathAdvice, pathFeesPaid, pathFundsSummary, pathTaxIskYears, pathDocuments,
 	pathTaxIskDetail, pathFundsHoldings, pathFeeAccount,
+	pathSavingsInterestAccrued, pathSavingsInterestRate,
 }
 
 func (c *Client) get(ctx context.Context, path string) (json.RawMessage, error) {
@@ -255,6 +260,16 @@ func (c *Client) TaxIsk(ctx context.Context, taxYear, accountID string) (json.Ra
 
 func (c *Client) Documents(ctx context.Context) (json.RawMessage, error) {
 	return c.get(ctx, pathDocuments)
+}
+
+// SavingsInterestAccrued fetches the accrued interest for one savings account.
+func (c *Client) SavingsInterestAccrued(ctx context.Context, accountID string) (json.RawMessage, error) {
+	return c.get(ctx, pathSavingsInterestAccrued+url.PathEscape(accountID))
+}
+
+// SavingsInterestRate fetches the current effective savings interest rate.
+func (c *Client) SavingsInterestRate(ctx context.Context) (json.RawMessage, error) {
+	return c.get(ctx, pathSavingsInterestRate)
 }
 
 func truncate(b []byte, n int) string {
