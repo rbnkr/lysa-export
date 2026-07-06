@@ -71,6 +71,10 @@
   .empty{color:var(--muted);padding:40px;text-align:center}
   .bar{height:6px;background:var(--surface2);border-radius:4px;overflow:hidden;margin-top:3px}
   .bar>span{display:block;height:100%;background:var(--accent)}
+  .ctygrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px 18px}
+  .cty .t{display:flex;justify-content:space-between;gap:8px;font-size:12.5px;align-items:baseline}
+  .cty .t .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
+  .cty .t b{font-variant-numeric:tabular-nums;white-space:nowrap;flex-shrink:0}
   .fundhdr{margin:16px 0 6px;font-size:13.5px}
   .fundhdr .m{color:var(--muted);font-size:12px}
   table.lt{table-layout:fixed}
@@ -250,11 +254,17 @@ function renderHoldings(p){
   if(countryTotal>0){
     const cc=el('div','card'); wrap.appendChild(cc);
     cc.appendChild(el('h2',null,'By country'));
-    cc.appendChild(el('p','sub','Value-weighted over the funds with full look-through data.'));
+    cc.appendChild(el('p','sub','Value-weighted over the funds with full look-through data. Hover for amounts.'));
     const cRows=Object.entries(byCountry).sort((x,y)=>y[1]-x[1]);
-    cc.appendChild(el('table','lt',
-      `<tbody>${cRows.map(([co,val])=>{const w=val/countryTotal*100;
-        return `<tr><td>${co}</td><td></td><td>${kr(val)}</td><td>${alloc(w)}<div class="bar"><span style="width:${Math.min(100,w).toFixed(1)}%"></span></div></td></tr>`;}).join('')}</tbody>`));
+    const maxVal=cRows[0][1];
+    let regionName=c=>c;
+    try{ const dn=new Intl.DisplayNames(['en'],{type:'region'}); regionName=c=>{try{return dn.of(c)||c}catch(e){return c}}; }catch(e){}
+    cc.appendChild(el('div','ctygrid', cRows.map(([co,val])=>{
+      const w=val/countryTotal*100;
+      return `<div class="cty" title="${regionName(co)} — ${kr(val)} (${alloc(w)})">
+        <div class="t"><span class="n">${regionName(co)}</span><b>${w<0.05?'&lt;0,1 %':alloc(w)}</b></div>
+        <div class="bar"><span style="width:${(val/maxVal*100).toFixed(1)}%"></span></div>
+      </div>`;}).join('')));
   }
 
   const MAXROWS=30;
