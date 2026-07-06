@@ -181,11 +181,23 @@ function renderOverview(p){
   }
   const docs=OUT.documents;
   if(docs){
-    const c=el('div','card'); c.appendChild(el('h2',null,'Documents'));
-    let lines=[];
-    for(const k in docs){ const v=docs[k]; if(Array.isArray(v)) lines.push([k,v.length+' items']); else if(v&&typeof v==='object') lines.push([k,Object.keys(v).length+' fields']); }
-    if(!lines.length) lines=[['loaded','see documents.json']];
-    c.appendChild(el('div','kv', lines.map(([k,v])=>`<div class="k">${k}</div><div>${v}</div>`).join('')));
+    const c=el('div','card'); c.appendChild(el('h2',null,'Agreements'));
+    const accts=[...(docs.accounts||[]),...(docs.savingsAccounts||[])];
+    if(accts.length){
+      if(docs.customer&&docs.customer.date) c.appendChild(el('p','sub','Customer agreement signed '+docs.customer.date));
+      const mandate=a=>{ const parts=[];
+        if(a.stocks!=null&&a.bonds!=null) parts.push(a.stocks+'/'+a.bonds+' stocks/bonds');
+        if(a.investmentType) parts.push(a.investmentType.toLowerCase());
+        if(a.homeBias) parts.push('home bias');
+        return parts.join(' · '); };
+      c.appendChild(el('table',null,
+        `<thead><tr><th>Account</th><th>Agreement signed</th><th>Guidelines signed</th><th>Mandate</th></tr></thead>
+         <tbody>${accts.map(a=>`<tr><td>${a.accountName||acctName[a.accountId]||(a.accountId||'').slice(0,8)}</td>
+           <td>${a.accountSigning||''}</td><td>${a.guidelinesSigning||''}</td><td>${mandate(a)}</td></tr>`).join('')}</tbody>`));
+    } else {
+      // unexpected shape — fall back to the raw file
+      c.appendChild(el('p','sub','See documents.json.'));
+    }
     wrap.appendChild(c);
   }
 }
