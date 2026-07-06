@@ -256,14 +256,13 @@ function renderHoldings(p){
     cc.appendChild(el('h2',null,'By country'));
     cc.appendChild(el('p','sub','Value-weighted over the funds with full look-through data. Hover for amounts.'));
     const cRows=Object.entries(byCountry).sort((x,y)=>y[1]-x[1]);
-    const maxVal=cRows[0][1];
     let regionName=c=>c;
     try{ const dn=new Intl.DisplayNames(['en'],{type:'region'}); regionName=c=>{try{return dn.of(c)||c}catch(e){return c}}; }catch(e){}
     cc.appendChild(el('div','ctygrid', cRows.map(([co,val])=>{
       const w=val/countryTotal*100;
       return `<div class="cty" title="${regionName(co)} — ${kr(val)} (${alloc(w)})">
         <div class="t"><span class="n">${regionName(co)}</span><b>${w<0.05?'&lt;0,1 %':alloc(w)}</b></div>
-        <div class="bar"><span style="width:${(val/maxVal*100).toFixed(1)}%"></span></div>
+        <div class="bar"><span style="width:${w.toFixed(2)}%"></span></div>
       </div>`;}).join('')));
   }
 
