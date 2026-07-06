@@ -31,7 +31,7 @@ var Datasets = []Dataset{
 	{"advice", "Advice & risk", "Per-account advised vs taken risk and suitability declaration"},
 	{"fees", "Fees paid", "Every management fee charged (date, amount, VAT)"},
 	{"funds", "Fund catalog", "The funds you hold — ISIN, name, share class"},
-	{"tax", "Tax years", "Available ISK tax (deklaration) years per account"},
+	{"tax", "Tax years", "Available ISK tax (deklaration) years per account + per-year detail"},
 	{"documents", "Documents", "Register of your statements & documents"},
 }
 
@@ -168,6 +168,43 @@ func (c *Client) Build(ctx context.Context, selected []string, viewerTmpl string
 			}
 			if err := addCSV(s.csv, s.header, rows); err != nil {
 				return nil, err
+			}
+		}
+	}
+
+	// --- best-effort extras ---
+	// Deeper data behind endpoints spotted in the SPA bundle but not yet
+	// probed against a live session. Errors are embedded in the output file
+	// instead of failing the export, so a moved/changed endpoint costs
+	// nothing but a visible note in the extra file itself.
+
+	// Per-year ISK deklaration data, one call per account × tax year.
+	if raw, ok := raws["tax"]; ok {
+		var years []taxIsk
+		if err := json.Unmarshal(raw, &years); err == nil {
+			type iskDetail struct {
+				AccountID string          `json:"accountId"`
+				TaxYear   int             `json:"taxYear"`
+				Data      json.RawMessage `json:"data,omitempty"`
+				Error     string          `json:"error,omitempty"`
+			}
+			var details []iskDetail
+			for _, t := range years {
+				for _, y := range t.TaxYears {
+					d := iskDetail{AccountID: t.AccountID, TaxYear: y}
+					if data, err := c.TaxIsk(ctx, strconv.Itoa(y), t.AccountID); err != nil {
+						d.Error = err.Error()
+					} else {
+						d.Data = data
+					}
+					details = append(details, d)
+				}
+			}
+			if len(details) > 0 {
+				b, _ := json.Marshal(details)
+				if err := addJSON("tax_isk", b); err != nil {
+					return nil, err
+				}
 			}
 		}
 	}

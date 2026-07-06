@@ -176,6 +176,9 @@ const (
 	pathFundsSummary = "/funds/data/summary"
 	pathTaxIskYears  = "/tax/isk/years"
 	pathDocuments    = "/documents"
+	// pathTaxIskDetail is the literal prefix as it appears in the SPA bundle
+	// (`/tax/isk?taxYear=${e}&accountId=${t}`) — query built by TaxIsk.
+	pathTaxIskDetail = "/tax/isk?taxYear="
 )
 
 // DataPaths is the set of path literals CheckAPI verifies against the SPA
@@ -185,6 +188,7 @@ const (
 var DataPaths = []string{
 	pathAccountsAll, pathTransactions, pathPerformance, pathLegalEntity,
 	pathAdvice, pathFeesPaid, pathFundsSummary, pathTaxIskYears, pathDocuments,
+	pathTaxIskDetail,
 }
 
 func (c *Client) get(ctx context.Context, path string) (json.RawMessage, error) {
@@ -225,6 +229,12 @@ func (c *Client) FundsSummary(ctx context.Context) (json.RawMessage, error) {
 
 func (c *Client) TaxIskYears(ctx context.Context) (json.RawMessage, error) {
 	return c.get(ctx, pathTaxIskYears)
+}
+
+// TaxIsk fetches the ISK deklaration data for one account and tax year (the
+// per-year detail gated by TaxIskYears).
+func (c *Client) TaxIsk(ctx context.Context, taxYear, accountID string) (json.RawMessage, error) {
+	return c.get(ctx, pathTaxIskDetail+url.QueryEscape(taxYear)+"&accountId="+url.QueryEscape(accountID))
 }
 
 func (c *Client) Documents(ctx context.Context) (json.RawMessage, error) {
