@@ -216,8 +216,21 @@ func (s *server) handleExport(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Export-Count", strconv.Itoa(len(files)))
 	w.WriteHeader(http.StatusOK)
 	if _, err := w.Write(zipBytes); err != nil {
+		// The client vanished before receiving the zip. Don't schedule a
+		// shutdown — leave the container up so they can retry the export.
 		log.Printf("export: writing zip to client failed: %v", err)
+		return
 	}
+
+	// The zip is delivered. The browser normally confirms via /api/shutdown for a
+	// prompt exit; this is the safety net if it never does (e.g. the window was
+	// closed mid-download), so the container can't hang forever. The payload is
+	// sub-MB over LAN/VPN, so 15s is far longer than any real transfer.
+	go func() {
+		time.Sleep(15 * time.Second)
+		log.Printf("no download confirmation 15s after export — exiting")
+		os.Exit(0)
+	}()
 }
 
 // handleShutdown lets the browser tell us the download is done so we can stop.
