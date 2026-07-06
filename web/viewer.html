@@ -71,8 +71,8 @@
   .empty{color:var(--muted);padding:40px;text-align:center}
   .bar{height:6px;background:var(--surface2);border-radius:4px;overflow:hidden;margin-top:3px}
   .bar>span{display:block;height:100%;background:var(--accent)}
-  .ctygrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px 18px}
-  .cty .t{display:flex;justify-content:space-between;gap:8px;font-size:12.5px;align-items:baseline}
+  .ctygrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:7px 22px}
+  .cty .t{display:flex;justify-content:space-between;gap:8px;font-size:12.5px;align-items:baseline;border-bottom:1px solid #202027;padding-bottom:6px}
   .cty .t .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
   .cty .t b{font-variant-numeric:tabular-nums;white-space:nowrap;flex-shrink:0}
   .fundhdr{margin:16px 0 6px;font-size:13.5px}
@@ -262,7 +262,6 @@ function renderHoldings(p){
       const w=val/countryTotal*100;
       return `<div class="cty" title="${regionName(co)} — ${kr(val)} (${alloc(w)})">
         <div class="t"><span class="n">${regionName(co)}</span><b>${w<0.05?'&lt;0,1 %':alloc(w)}</b></div>
-        <div class="bar"><span style="width:${w.toFixed(2)}%"></span></div>
       </div>`;}).join('')));
   }
 
