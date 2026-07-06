@@ -15,15 +15,23 @@ There is **no official Lysa API**; this is unofficial and unsupported.
 
 | Dataset | Contents |
 |---|---|
-| Accounts & holdings | Current positions per account — ISIN, volume, worth, average cost (GAV) |
+| Accounts & holdings | Current positions per account — ISIN, volume, worth, average cost (GAV) — incl. savings accounts (+ accrued interest & current rate, `savings_interest.json`) |
 | Transaction history | Every transaction (buy/sell/deposit/withdrawal/fee/switch) with ISINs |
 | Performance | Daily portfolio value series + total return |
 | Profile | Legal entity / KYC (name, personal number, email) |
 | Advice & risk | Per-account advised vs taken risk and suitability declaration |
+| Fees paid | Every management fee charged (date, amount, VAT) + current fee rates per account (`fee_rates.json`) |
+| Fund catalog | The funds you hold — ISIN, name, share class + full look-through holdings (`fund_holdings.json`) |
+| Tax years | Available ISK tax (deklaration) years per account + per-year detail (`tax_isk.json`) |
+| Documents | Register of your statements & documents |
 
-Each selected dataset is written as `<name>.json`; accounts, transactions and
-performance additionally get a flattened `<name>.csv` (`positions.csv`,
-`transactions.csv`, `performance.csv`).
+Each selected dataset is written as `<name>.json`; accounts, transactions,
+performance, fees, funds and tax additionally get a flattened `<name>.csv`
+(`positions.csv`, `transactions.csv`, `performance.csv`, `fees.csv`,
+`funds.csv`, `tax_years.csv`). The extra files named in parentheses above come
+from endpoints spotted in Lysa's app bundle but not yet observed live — they
+are fetched best-effort, with any error embedded in the file itself rather
+than failing the export.
 
 ## Usage
 
