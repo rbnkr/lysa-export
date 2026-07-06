@@ -349,7 +349,8 @@ func WriteDir(outDir, dirName string, files map[string][]byte) (string, error) {
 // buildViewer bakes the exported datasets into the self-contained viewer HTML so
 // it renders offline (file://) with no server.
 func buildViewer(tmpl string, raws map[string]json.RawMessage) []byte {
-	keys := []string{"accounts", "transactions", "performance", "profile", "advice", "fees", "funds", "tax", "documents"}
+	keys := []string{"accounts", "transactions", "performance", "profile", "advice", "fees", "funds", "tax", "documents",
+		"tax_isk", "fund_holdings", "fee_rates", "savings_interest"}
 	parts := make([]string, 0, len(keys))
 	for _, k := range keys {
 		if raw, ok := raws[k]; ok && len(raw) > 0 {

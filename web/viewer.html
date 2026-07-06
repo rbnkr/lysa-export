@@ -103,12 +103,14 @@ const alloc= n => new Intl.NumberFormat('sv-SE',{minimumFractionDigits:1,maximum
 const day  = s => (s||'').slice(0,10);
 const sign = n => n>0?'pos':n<0?'neg':'';
 
-let acctName = {}, fundName = {}, depotByIsin = {};
+let acctName = {}, fundName = {}, depotByIsin = {}, fullByIsin = {};
 
 function boot(){
   const accounts=OUT.accounts, performance=OUT.performance;
   if(accounts) (accounts.investmentAccounts||[]).forEach(a=>acctName[a.accountId]=a.name||a.accountId.slice(0,8));
   if(OUT.funds) for(const d of OUT.funds) for(const s of (d.fundShareClasses||[])){ if(s.isin){ fundName[s.isin]=s.name; depotByIsin[s.isin]=d; } }
+  // full look-through (fund_holdings.json): fundShareClasses is an isin->name map
+  if(OUT.fund_holdings) for(const h of OUT.fund_holdings) for(const isin in (h.fundShareClasses||{})) fullByIsin[isin]=h;
 
   const tabs=[];
   if(accounts||OUT.profile||OUT.tax||OUT.documents) tabs.push(['overview','Overview',renderOverview]);
@@ -116,6 +118,7 @@ function boot(){
   if(performance)      tabs.push(['performance','Performance',renderPerformance]);
   if(OUT.transactions) tabs.push(['transactions','Transactions',renderTransactions]);
   if(OUT.fees)         tabs.push(['fees','Fees',renderFees]);
+  if(OUT.tax_isk&&OUT.tax_isk.some(t=>t.data)) tabs.push(['tax','Tax',renderTax]);
   if(OUT.advice)       tabs.push(['advice','Advice',renderAdvice]);
   const nav=$('#nav'), main=$('#main');
   if(!tabs.length){ main.innerHTML='<div class="empty">No data in this export.</div>'; return; }
@@ -189,23 +192,26 @@ function renderOverview(p){
 /* ---------- Look-through (underlying holdings) ---------- */
 function renderHoldings(p){
   const accs=(OUT.accounts&&OUT.accounts.investmentAccounts)||[];
-  const agg={}; let total=0; const perFund=[];
+  const agg={}, byCountry={}; let total=0, countryTotal=0; const perFund=[];
   for(const a of accs){
     for(const isin of Object.keys(a.positions||{})){
-      const pos=a.positions[isin], dp=depotByIsin[isin]; total+=pos.worth;
+      const pos=a.positions[isin], dp=depotByIsin[isin], fh=fullByIsin[isin]; total+=pos.worth;
+      // prefer the full look-through (fund_holdings.json); fall back to the
+      // summary's top largePositions
+      const list = fh ? ((fh.holdingDetails&&fh.holdingDetails.positionSummary&&fh.holdingDetails.positionSummary.positions)||[])
+                      : ((dp&&dp.largePositions)||[]);
       const rows=[];
-      if(dp){
-        for(const lp of (dp.largePositions||[])){
-          const first=(lp.instruments&&lp.instruments[0])||{}, extra=(lp.instruments||[]).length-1;
-          const val=pos.worth*(+lp.percent||0)/100, key=first.isin||first.name;
-          rows.push({name:first.name, isin:first.isin, extra, pct:+lp.percent||0, value:val});
-          if(key){ (agg[key]=agg[key]||{name:first.name,isin:first.isin,value:0}).value+=val; }
-        }
-        const rem=+dp.remainingPositionsPercent||0;
-        if(rem>0){ const val=pos.worth*rem/100; rows.push({name:'Other holdings',pct:rem,value:val});
-          (agg['__rem']=agg['__rem']||{name:'Other holdings',value:0}).value+=val; }
+      for(const lp of list){
+        const first=(lp.instruments&&lp.instruments[0])||{}, extra=(lp.instruments||[]).length-1;
+        const val=pos.worth*(+lp.percent||0)/100, key=first.isin||first.name;
+        rows.push({name:first.name, isin:first.isin, extra, pct:+lp.percent||0, value:val});
+        if(key){ (agg[key]=agg[key]||{name:first.name,isin:first.isin,value:0}).value+=val; }
+        if(lp.country){ byCountry[lp.country]=(byCountry[lp.country]||0)+val; countryTotal+=val; }
       }
-      perFund.push({fund:fundName[isin]||isin, isin, worth:pos.worth, account:a.name, rows, hasData:!!dp});
+      const rem = fh ? 0 : (dp ? +dp.remainingPositionsPercent||0 : 0);
+      if(rem>0){ const val=pos.worth*rem/100; rows.push({name:'Other holdings',pct:rem,value:val});
+        (agg['__rem']=agg['__rem']||{name:'Other holdings',value:0}).value+=val; }
+      perFund.push({fund:fundName[isin]||isin, isin, worth:pos.worth, account:a.name, rows, hasData:!!(fh||dp), full:!!fh});
     }
   }
   const aggRows=Object.values(agg).sort((x,y)=>y.value-x.value);
@@ -213,18 +219,43 @@ function renderHoldings(p){
   const wrap=el('div','cards'); p.appendChild(wrap);
   const c=el('div','card'); wrap.appendChild(c);
   c.appendChild(el('h2',null,'Underlying holdings'));
-  c.appendChild(el('table','lt',
-    `<thead><tr><th>Holding</th><th>ISIN</th><th>Value</th><th>Weight</th></tr></thead>
-     <tbody>${aggRows.map(r=>{const w=total?r.value/total*100:0;
-       return `<tr${r.isin?'':' class="muted-row"'}><td>${r.name||''}</td><td class="mono">${r.isin||''}</td><td>${kr(r.value)}</td><td>${alloc(w)}</td></tr>`;}).join('')}</tbody>`));
+  c.appendChild(el('div','controls',
+    `<input id="hq" placeholder="Filter holdings…"/><span class="count" id="hcnt"></span>`));
+  const hsc=el('div','scroll'); c.appendChild(hsc);
+  const htbl=el('table','lt',
+    `<thead><tr><th>Holding</th><th>ISIN</th><th>Value</th><th>Weight</th></tr></thead><tbody></tbody>`);
+  hsc.appendChild(htbl);
+  const drawAgg=()=>{
+    const q=$('#hq').value.trim().toLowerCase();
+    const rows=aggRows.filter(r=>!q||[r.name,r.isin].some(v=>(v||'').toLowerCase().includes(q)));
+    htbl.querySelector('tbody').innerHTML = rows.map(r=>{const w=total?r.value/total*100:0;
+      return `<tr${r.isin?'':' class="muted-row"'}><td>${r.name||''}</td><td class="mono">${r.isin||''}</td><td>${kr(r.value)}</td><td>${alloc(w)}</td></tr>`;}).join('');
+    $('#hcnt').textContent = rows.length+' of '+aggRows.length;
+  };
+  $('#hq').addEventListener('input',drawAgg); drawAgg();
 
+  if(countryTotal>0){
+    const cc=el('div','card'); wrap.appendChild(cc);
+    cc.appendChild(el('h2',null,'By country'));
+    cc.appendChild(el('p','sub','Value-weighted over the funds with full look-through data.'));
+    const cRows=Object.entries(byCountry).sort((x,y)=>y[1]-x[1]);
+    cc.appendChild(el('table','lt',
+      `<tbody>${cRows.map(([co,val])=>{const w=val/countryTotal*100;
+        return `<tr><td>${co}</td><td></td><td>${kr(val)}</td><td>${alloc(w)}<div class="bar"><span style="width:${Math.min(100,w).toFixed(1)}%"></span></div></td></tr>`;}).join('')}</tbody>`));
+  }
+
+  const MAXROWS=30;
   const c2=el('div','card'); wrap.appendChild(c2);
   c2.appendChild(el('h2',null,'By fund'));
   for(const pf of perFund){
-    c2.appendChild(el('div','fundhdr',`<b>${pf.fund}</b> <span class="mono m">${pf.isin}</span> · ${kr(pf.worth)} · <span class="m">${pf.account}</span>`));
-    if(pf.hasData && pf.rows.length) c2.appendChild(el('table','lt',
-      `<tbody>${pf.rows.map(r=>`<tr${r.isin?'':' class="muted-row"'}><td>${r.name||''}${r.extra>0?' <span style="color:var(--muted)">(+'+r.extra+')</span>':''}</td>
-        <td class="mono">${r.isin||''}</td><td>${kr(r.value)}</td><td>${alloc(r.pct)}</td></tr>`).join('')}</tbody>`));
+    c2.appendChild(el('div','fundhdr',`<b>${pf.fund}</b> <span class="mono m">${pf.isin}</span> · ${kr(pf.worth)} · <span class="m">${pf.account}</span>${pf.full?' · <span class="m">'+pf.rows.length+' positions</span>':''}`));
+    if(pf.hasData && pf.rows.length){
+      const shown=pf.rows.slice(0,MAXROWS), hidden=pf.rows.length-shown.length;
+      c2.appendChild(el('table','lt',
+        `<tbody>${shown.map(r=>`<tr${r.isin?'':' class="muted-row"'}><td>${r.name||''}${r.extra>0?' <span style="color:var(--muted)">(+'+r.extra+')</span>':''}</td>
+          <td class="mono">${r.isin||''}</td><td>${kr(r.value)}</td><td>${alloc(r.pct)}</td></tr>`).join('')}
+         ${hidden>0?`<tr class="muted-row"><td>… ${hidden} more positions (see fund_holdings.json)</td><td></td><td></td><td></td></tr>`:''}</tbody>`));
+    }
     else c2.appendChild(el('p','sub','No look-through data for this fund.'));
   }
 }
@@ -356,9 +387,10 @@ function renderTransactions(p){
 
 /* ---------- Fees ---------- */
 function renderFees(p){
+  const wrap=el('div','cards'); p.appendChild(wrap);
   const fees=(OUT.fees||[]).slice().sort((a,b)=> a.date<b.date?1:-1);
   const total=fees.reduce((s,f)=>s+(f.fee||0),0), exvat=fees.reduce((s,f)=>s+(f.feeExcludingVat||0),0);
-  const card=el('div','card'); p.appendChild(card);
+  const card=el('div','card'); wrap.appendChild(card);
   card.appendChild(el('div','stats',
     `<div class="stat"><div class="k">Total fees paid</div><div class="v">${kr(total)}</div></div>
      <div class="stat"><div class="k">Excl. VAT</div><div class="v">${kr(exvat)}</div></div>
@@ -367,6 +399,48 @@ function renderFees(p){
   sc.appendChild(el('table',null,
     `<thead><tr><th>Date</th><th>Fee</th><th>Excl. VAT</th><th>Transaction</th></tr></thead>
      <tbody>${fees.map(f=>`<tr><td>${day(f.date)}</td><td>${kr2(f.fee)}</td><td>${kr2(f.feeExcludingVat)}</td><td class="mono">${f.transactionId||''}</td></tr>`).join('')}</tbody>`));
+
+  // Current fee rates per account (fee_rates.json): `cost` is % per year,
+  // `historic`/`future` are SEK.
+  const compNames={fundManagement:'Fund management', fundAssets:'Fund assets', discretionary:'Discretionary', transactionFees:'Transaction fees'};
+  const rate=n=> n==null?'':new Intl.NumberFormat('sv-SE',{minimumFractionDigits:3,maximumFractionDigits:3}).format(n)+' %';
+  for(const r of (OUT.fee_rates||[])){
+    if(!r.data){ continue; }
+    const d=r.data, c2=el('div','card'); wrap.appendChild(c2);
+    c2.appendChild(el('h2',null,'Fee rates — '+(acctName[r.accountId]||r.accountId.slice(0,8))));
+    c2.appendChild(el('div','stats',
+      `<div class="stat"><div class="k">Current rate</div><div class="v">${rate(d.cost&&d.cost.total)}</div></div>
+       <div class="stat"><div class="k">Paid (historic)</div><div class="v">${kr(d.historic&&d.historic.total)}</div></div>
+       <div class="stat"><div class="k">Estimated future</div><div class="v">${kr(d.future&&d.future.total)}</div></div>
+       <div class="stat"><div class="k">Accumulated</div><div class="v">${kr2(d.accumulated)}</div></div>`));
+    c2.appendChild(el('table',null,
+      `<thead><tr><th>Component</th><th>Rate / yr</th><th>Historic</th><th>Future</th></tr></thead>
+       <tbody>${Object.keys(compNames).map(k=>
+         `<tr><td>${compNames[k]}</td><td>${rate(d.cost&&d.cost[k])}</td><td>${kr2(d.historic&&d.historic[k])}</td><td>${kr2(d.future&&d.future[k])}</td></tr>`).join('')}</tbody>
+       <tfoot><tr><td>Total</td><td>${rate(d.cost&&d.cost.total)}</td><td>${kr2(d.historic&&d.historic.total)}</td><td>${kr2(d.future&&d.future.total)}</td></tr></tfoot>`));
+  }
+}
+
+/* ---------- Tax (per-year ISK deklaration data) ---------- */
+function renderTax(p){
+  const rows=(OUT.tax_isk||[]).filter(t=>t.data).map(t=>({acct:t.accountId, y:t.taxYear, d:t.data}));
+  rows.sort((a,b)=> b.y-a.y || (acctName[a.acct]||'').localeCompare(acctName[b.acct]||''));
+  const totInc=rows.reduce((s,r)=>s+(r.d.taxableIncome||0),0);
+  const pc=n=> n==null?'':new Intl.NumberFormat('sv-SE',{minimumFractionDigits:2,maximumFractionDigits:2}).format(n*100)+' %';
+  const card=el('div','card'); p.appendChild(card);
+  card.appendChild(el('h2',null,'ISK schablonintäkt per year'));
+  card.appendChild(el('p','sub','Quarterly values, deposits and taxable income per account and tax year — the numbers behind the pre-filled deklaration.'));
+  card.appendChild(el('div','stats',
+    `<div class="stat"><div class="k">Schablonintäkt, all years</div><div class="v">${kr(totInc)}</div></div>
+     <div class="stat"><div class="k">Entries</div><div class="v">${rows.length}</div></div>`));
+  const sc=el('div','scroll'); card.appendChild(sc);
+  sc.appendChild(el('table',null,
+    `<thead><tr><th>Year</th><th>Account</th><th>Deposits</th><th>Taxable capital</th><th>Schablonintäkt</th><th>SLR</th><th>Rate</th></tr></thead>
+     <tbody>${rows.map(r=>`<tr><td>${r.y}</td><td>${acctName[r.acct]||r.acct.slice(0,8)}</td>
+       <td>${kr(r.d.deposits)}</td><td>${kr(r.d.taxableCapital)}</td><td>${kr(r.d.taxableIncome)}</td>
+       <td>${pc(r.d.slr)}</td><td>${pc(r.d.taxMultiplier)}</td></tr>`).join('')}</tbody>`));
+  const errs=(OUT.tax_isk||[]).filter(t=>t.error);
+  if(errs.length) card.appendChild(el('p','sub',errs.length+' year(s) failed to fetch — see tax_isk.json.'));
 }
 
 /* ---------- Advice ---------- */
