@@ -62,7 +62,6 @@ then walk away for half an hour before exporting, just restart and log in again.
 |---|---|---|
 | `PORT` | `8080` | Web UI port |
 | `OUT_DIR` | `/out` | Where export files are written |
-| `LYSA_BUILD_HASH` | *(baked-in)* | The SPA `hash` sent on login calls. If login starts failing after a Lysa frontend deploy, copy a fresh `hash=` value from any `api.lysa.se` request URL and set it here. |
 
 ## Caveats
 

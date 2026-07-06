@@ -30,22 +30,18 @@ const (
 
 // Client talks to api.lysa.se. Safe for concurrent use.
 type Client struct {
-	http      *http.Client
-	appID     string
-	buildHash string
+	http  *http.Client
+	appID string
 
 	mu    sync.Mutex
 	token string
 }
 
-// New returns a client. buildHash is the SPA build hash sent as the `hash`
-// query param on the login endpoints (grab it from any api.lysa.se request URL
-// if login ever starts failing after a Lysa deploy).
-func New(buildHash string) *Client {
+// New returns a client.
+func New() *Client {
 	return &Client{
-		http:      &http.Client{Timeout: 30 * time.Second},
-		appID:     "00000000-0000-0000-0000-000000000000", // cosmetic; not validated
-		buildHash: buildHash,
+		http:  &http.Client{Timeout: 30 * time.Second},
+		appID: "00000000-0000-0000-0000-000000000000", // cosmetic; not validated
 	}
 }
 
@@ -109,7 +105,7 @@ func (c *Client) request(ctx context.Context, method, path string) ([]byte, *htt
 
 // StartLogin begins a BankID order and returns its orderRef.
 func (c *Client) StartLogin(ctx context.Context) (orderRef string, err error) {
-	body, _, err := c.request(ctx, "POST", "/bankid/login?hash="+c.buildHash)
+	body, _, err := c.request(ctx, "POST", "/bankid/login")
 	if err != nil {
 		return "", err
 	}
@@ -144,7 +140,7 @@ func (c *Client) QRCode(ctx context.Context, orderRef string) (string, error) {
 // Collect polls login status. On "complete" it captures the lysa-token cookie
 // from the Set-Cookie header.
 func (c *Client) Collect(ctx context.Context, orderRef string) (status, hintCode string, err error) {
-	body, resp, err := c.request(ctx, "GET", "/bankid/login/"+url.PathEscape(orderRef)+"?hash="+c.buildHash)
+	body, resp, err := c.request(ctx, "GET", "/bankid/login/"+url.PathEscape(orderRef))
 	if err != nil {
 		return "", "", err
 	}

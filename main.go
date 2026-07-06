@@ -25,11 +25,6 @@ var indexHTML []byte
 //go:embed web/viewer.html
 var viewerHTML []byte
 
-// defaultBuildHash is the SPA `hash` value observed on api.lysa.se login calls.
-// If login starts 4xx-ing after a Lysa frontend deploy, grab a fresh hash from
-// any api.lysa.se request URL and pass it via LYSA_BUILD_HASH.
-const defaultBuildHash = "b7e94f4ae4fd2168e99698ee359ba6b96332ca39"
-
 type server struct {
 	outDir string
 
@@ -73,7 +68,7 @@ func (s *server) handleStart(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	// Fresh client + order each time Start is called (e.g. after QR expiry).
-	c := lysa.New(env("LYSA_BUILD_HASH", defaultBuildHash))
+	c := lysa.New()
 	orderRef, err := c.StartLogin(r.Context())
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
