@@ -71,12 +71,16 @@
   .empty{color:var(--muted);padding:40px;text-align:center}
   .bar{height:6px;background:var(--surface2);border-radius:4px;overflow:hidden;margin-top:3px}
   .bar>span{display:block;height:100%;background:var(--accent)}
-  .ctygrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:7px 22px}
-  .cty .t{display:flex;justify-content:space-between;gap:8px;font-size:12.5px;align-items:baseline;border-bottom:1px solid #202027;padding-bottom:6px}
-  .cty .t .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
+  .ctygrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px 26px}
+  .cty{border-bottom:1px solid #202027;padding-bottom:7px}
+  .cty .t{display:flex;justify-content:space-between;gap:8px;font-size:13px;align-items:baseline}
+  .cty .t .n{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .cty .t b{font-variant-numeric:tabular-nums;white-space:nowrap;flex-shrink:0}
-  .fundhdr{margin:16px 0 6px;font-size:13.5px}
-  .fundhdr .m{color:var(--muted);font-size:12px}
+  .cty .a{color:var(--muted);font-size:11.5px;font-variant-numeric:tabular-nums;margin-top:1px}
+  .fundhdr{display:flex;justify-content:space-between;align-items:baseline;gap:16px;margin:22px 0 8px;padding-top:18px;border-top:1px solid var(--border);font-size:14px}
+  .fundhdr:first-of-type{border-top:none;padding-top:0;margin-top:8px}
+  .fundhdr .m2{color:var(--muted);font-size:11.5px;margin-top:2px}
+  .fundhdr .val{font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums}
   table.lt{table-layout:fixed}
   table.lt th:nth-child(2),table.lt td:nth-child(2){width:160px}
   table.lt th:nth-child(3),table.lt td:nth-child(3){width:140px}
@@ -254,14 +258,15 @@ function renderHoldings(p){
   if(countryTotal>0){
     const cc=el('div','card'); wrap.appendChild(cc);
     cc.appendChild(el('h2',null,'By country'));
-    cc.appendChild(el('p','sub','Value-weighted over the funds with full look-through data. Hover for amounts.'));
+    cc.appendChild(el('p','sub','Value-weighted over the funds with full look-through data.'));
     const cRows=Object.entries(byCountry).sort((x,y)=>y[1]-x[1]);
     let regionName=c=>c;
     try{ const dn=new Intl.DisplayNames(['en'],{type:'region'}); regionName=c=>{try{return dn.of(c)||c}catch(e){return c}}; }catch(e){}
     cc.appendChild(el('div','ctygrid', cRows.map(([co,val])=>{
       const w=val/countryTotal*100;
-      return `<div class="cty" title="${regionName(co)} — ${kr(val)} (${alloc(w)})">
+      return `<div class="cty">
         <div class="t"><span class="n">${regionName(co)}</span><b>${w<0.05?'&lt;0,1 %':alloc(w)}</b></div>
+        <div class="a">${val<1?'&lt;1 kr':kr(val)}</div>
       </div>`;}).join('')));
   }
 
@@ -269,7 +274,9 @@ function renderHoldings(p){
   const c2=el('div','card'); wrap.appendChild(c2);
   c2.appendChild(el('h2',null,'By fund'));
   for(const pf of perFund){
-    c2.appendChild(el('div','fundhdr',`<b>${pf.fund}</b> <span class="mono m">${pf.isin}</span> · ${kr(pf.worth)} · <span class="m">${pf.account}</span>${pf.full?' · <span class="m">'+pf.rows.length+' positions</span>':''}`));
+    c2.appendChild(el('div','fundhdr',
+      `<div><b>${pf.fund}</b><div class="m2"><span class="mono">${pf.isin}</span> · ${pf.account}${pf.full?' · '+vol(pf.rows.length)+' positions':''}</div></div>
+       <div class="val">${kr(pf.worth)}</div>`));
     if(pf.hasData && pf.rows.length){
       const shown=pf.rows.slice(0,MAXROWS), hidden=pf.rows.length-shown.length;
       c2.appendChild(el('table','lt',
@@ -473,8 +480,8 @@ function renderAdvice(p){
     c.appendChild(el('div','stats',
       `<div class="stat"><div class="k">Advised risk</div><div class="v">${a.advisedRisk}%</div></div>
        <div class="stat"><div class="k">Taken risk</div><div class="v">${a.takenRisk}%</div></div>
-       <div class="stat"><div class="k">Horizon</div><div class="v" style="font-size:15px;font-weight:600">${(a.savingsHorizon||'').toLowerCase()}</div></div>
-       <div class="stat"><div class="k">Focus</div><div class="v" style="font-size:15px;font-weight:600">${(a.investmentType||'').toLowerCase()}</div></div>`));
+       <div class="stat"><div class="k">Horizon</div><div class="v" style="font-size:15px;font-weight:600">${(a.savingsHorizon||'').toLowerCase().replace(/_/g,' ')}</div></div>
+       <div class="stat"><div class="k">Focus</div><div class="v" style="font-size:15px;font-weight:600">${(a.investmentType||'').toLowerCase().replace(/_/g,' ')}</div></div>`));
     if(a.declaration) c.appendChild(el('div','decl',a.declaration));
     wrap.appendChild(c);
   }
