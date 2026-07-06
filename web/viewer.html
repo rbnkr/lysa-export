@@ -116,6 +116,7 @@ let acctName = {}, fundName = {}, depotByIsin = {}, fullByIsin = {};
 function boot(){
   const accounts=OUT.accounts, performance=OUT.performance;
   if(accounts) (accounts.investmentAccounts||[]).forEach(a=>acctName[a.accountId]=a.name||a.accountId.slice(0,8));
+  if(accounts) (accounts.savingsAccounts||[]).forEach(a=>acctName[a.accountId]=a.name||a.accountId.slice(0,8));
   if(OUT.funds) for(const d of OUT.funds) for(const s of (d.fundShareClasses||[])){ if(s.isin){ fundName[s.isin]=s.name; depotByIsin[s.isin]=d; } }
   // full look-through (fund_holdings.json): fundShareClasses is an isin->name map
   if(OUT.fund_holdings) for(const h of OUT.fund_holdings) for(const isin in (h.fundShareClasses||{})) fullByIsin[isin]=h;
@@ -171,6 +172,28 @@ function renderOverview(p){
            <td class="${sign(tot)}">${kr(tot)}</td><td class="${sign(tot)}">${pct(tp)}</td></tr></tfoot>`));
     }
     wrap.appendChild(c);
+  }
+  // savings accounts — schema is loosely known, so look fields up defensively
+  const sav=(OUT.accounts&&OUT.accounts.savingsAccounts)||[];
+  if(sav.length){
+    const si=OUT.savings_interest||{};
+    const rr=si.effectiveInterestRate;
+    const rateVal = typeof rr==='number' ? rr : rr && (rr.interestRate ?? rr.rate ?? rr.effectiveInterestRate);
+    const accruedBy={};
+    for(const x of (si.accrued||[])){ const d=x.data||{};
+      const v=d.accruedInterest ?? d.accrued ?? d.interest ?? d.amount;
+      if(v!=null) accruedBy[x.accountId]=v; }
+    for(const a of sav){
+      const c=el('div','card');
+      c.appendChild(el('h2',null,(a.name||a.accountId.slice(0,8))+' <span class="badge" style="background:#26262c;color:#a6a6b0">'+(a.type||'SAVINGS')+'</span>'));
+      const bal=a.worth ?? a.balance ?? a.totalBalance;
+      const bits=[];
+      if(bal!=null) bits.push('Balance '+kr(bal));
+      if(accruedBy[a.accountId]!=null) bits.push('accrued interest '+kr2(accruedBy[a.accountId]));
+      if(rateVal!=null) bits.push('rate '+new Intl.NumberFormat('sv-SE',{minimumFractionDigits:2,maximumFractionDigits:2}).format(rateVal*100)+' %');
+      c.appendChild(el('p','sub',bits.join('  ·  ')||'See accounts.json'));
+      wrap.appendChild(c);
+    }
   }
   const pr=OUT.profile;
   if(pr){
