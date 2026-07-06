@@ -64,9 +64,9 @@ OUT_DIR=./lysa-export-out go run .   # also write a copy to disk
    `OUT_DIR` is set, a copy is also written there. The container exits once the
    browser confirms it has the download.
 
-The session token lasts ~30 minutes — far longer than the couple of minutes the
-whole export takes — so there's no session-refresh machinery. If you log in and
-then walk away for half an hour before exporting, just restart and log in again.
+The session token lasts ~30 minutes, so there's no session-refresh machinery. If
+you log in and then walk away for half an hour before exporting, just restart and
+log in again.
 
 ## Configuration
 
