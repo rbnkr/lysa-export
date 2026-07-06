@@ -9,6 +9,8 @@ package main
 import (
 	_ "embed"
 	"encoding/json"
+	"flag"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -39,6 +41,13 @@ type server struct {
 }
 
 func main() {
+	checkMode := flag.Bool("check", false, "run the API-drift check against Lysa's public bundle and exit (2 = drift detected)")
+	flag.Parse()
+	if *checkMode {
+		runDriftCheck()
+		return
+	}
+
 	// OUT_DIR is opt-in: set it (and mount a volume) to also save a copy to
 	// disk. Unset — the default — means the export is download-only.
 	srv := &server{outDir: env("OUT_DIR", "")}
@@ -67,6 +76,23 @@ func main() {
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// runDriftCheck runs the same API-drift check the UI uses, but as a one-shot CLI
+// for scheduled monitoring (e.g. the api-drift GitHub Action). Exit codes: 0 =
+// no drift (also on any fetch error, since CheckAPI is fail-open — a Lysa outage
+// must not raise a false alarm); 2 = one or more endpoint paths have moved.
+func runDriftCheck() {
+	missing := lysa.CheckAPI()
+	if len(missing) == 0 {
+		fmt.Println("ok: all exporter endpoint paths are present in Lysa's app bundle")
+		return
+	}
+	fmt.Printf("drift: %d exporter endpoint(s) not found in Lysa's app bundle:\n", len(missing))
+	for _, p := range missing {
+		fmt.Println("  " + p)
+	}
+	os.Exit(2)
 }
 
 // runPreflight checks the live Lysa SPA for our endpoint paths and records the
