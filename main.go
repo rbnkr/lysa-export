@@ -31,15 +31,25 @@ type server struct {
 	mu       sync.Mutex
 	client   *lysa.Client
 	orderRef string
+
+	pfMu      sync.Mutex
+	pfChecked bool
+	pfMissing []string
 }
 
 func main() {
 	srv := &server{outDir: env("OUT_DIR", "/out")}
 	port := env("PORT", "8080")
 
+	// Advisory API-drift preflight: fetch Lysa's public SPA bundle and check our
+	// endpoint paths still exist. Runs async so it never delays page load; the
+	// UI polls /api/preflight and shows a banner only if something drifted.
+	go srv.runPreflight()
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", srv.handleIndex)
 	mux.HandleFunc("/api/datasets", srv.handleDatasets)
+	mux.HandleFunc("/api/preflight", srv.handlePreflight)
 	mux.HandleFunc("/api/auth/start", srv.handleStart)
 	mux.HandleFunc("/api/auth/qr.png", srv.handleQR)
 	mux.HandleFunc("/api/auth/status", srv.handleStatus)
@@ -48,6 +58,33 @@ func main() {
 	log.Printf("lysa-export listening on :%s — open http://localhost:%s (writing to %s)", port, port, srv.outDir)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
 		log.Fatal(err)
+	}
+}
+
+// runPreflight checks the live Lysa SPA for our endpoint paths and records the
+// result. Fail-open: lysa.CheckAPI returns nil on any error, so a Lysa outage
+// just yields "no drift" and the tool proceeds normally.
+func (s *server) runPreflight() {
+	missing := lysa.CheckAPI()
+	s.pfMu.Lock()
+	s.pfChecked, s.pfMissing = true, missing
+	s.pfMu.Unlock()
+	if len(missing) > 0 {
+		log.Printf("preflight: %d endpoint(s) not found in Lysa's app bundle — the API may have changed and the exporter may need updating: %v", len(missing), missing)
+	}
+}
+
+func (s *server) handlePreflight(w http.ResponseWriter, r *http.Request) {
+	s.pfMu.Lock()
+	checked, missing := s.pfChecked, s.pfMissing
+	s.pfMu.Unlock()
+	switch {
+	case !checked:
+		writeJSON(w, http.StatusOK, map[string]any{"status": "checking"})
+	case len(missing) == 0:
+		writeJSON(w, http.StatusOK, map[string]any{"status": "ok"})
+	default:
+		writeJSON(w, http.StatusOK, map[string]any{"status": "drift", "missing": missing})
 	}
 }
 

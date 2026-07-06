@@ -162,6 +162,31 @@ func (c *Client) Collect(ctx context.Context, orderRef string) (status, hintCode
 
 // --- data endpoints (raw JSON) ---
 
+// Data-endpoint paths. Each of these string literals also appears verbatim in
+// Lysa's public SPA bundle, so CheckAPI can detect when the API moves. The
+// methods below and DataPaths both reference these constants — keep them the
+// single source of truth so the preflight check can't drift from what we call.
+const (
+	pathAccountsAll  = "/accounts/all"
+	pathTransactions = "/transactions"
+	pathPerformance  = "/accounts/performance"
+	pathLegalEntity  = "/legal-entity"
+	pathAdvice       = "/investments/combined/advice"
+	pathFeesPaid     = "/fees/paid"
+	pathFundsSummary = "/funds/data/summary"
+	pathTaxIskYears  = "/tax/isk/years"
+	pathDocuments    = "/documents"
+)
+
+// DataPaths is the set of path literals CheckAPI verifies against the SPA
+// bundle. The BankID login paths are deliberately excluded — they are assembled
+// from fragments in the SPA (base + `/login/${ref}`) and never appear as
+// contiguous strings, so a substring check on them would always false-positive.
+var DataPaths = []string{
+	pathAccountsAll, pathTransactions, pathPerformance, pathLegalEntity,
+	pathAdvice, pathFeesPaid, pathFundsSummary, pathTaxIskYears, pathDocuments,
+}
+
 func (c *Client) get(ctx context.Context, path string) (json.RawMessage, error) {
 	body, _, err := c.request(ctx, "GET", path)
 	if err != nil {
@@ -171,39 +196,39 @@ func (c *Client) get(ctx context.Context, path string) (json.RawMessage, error) 
 }
 
 func (c *Client) AccountsAll(ctx context.Context) (json.RawMessage, error) {
-	return c.get(ctx, "/accounts/all")
+	return c.get(ctx, pathAccountsAll)
 }
 
 func (c *Client) Transactions(ctx context.Context, from, to string) (json.RawMessage, error) {
-	return c.get(ctx, "/transactions?from="+url.QueryEscape(from)+"&to="+url.QueryEscape(to))
+	return c.get(ctx, pathTransactions+"?from="+url.QueryEscape(from)+"&to="+url.QueryEscape(to))
 }
 
 func (c *Client) Performance(ctx context.Context, start, end string) (json.RawMessage, error) {
-	return c.get(ctx, "/accounts/performance?start="+url.QueryEscape(start)+"&end="+url.QueryEscape(end))
+	return c.get(ctx, pathPerformance+"?start="+url.QueryEscape(start)+"&end="+url.QueryEscape(end))
 }
 
 func (c *Client) LegalEntity(ctx context.Context) (json.RawMessage, error) {
-	return c.get(ctx, "/legal-entity")
+	return c.get(ctx, pathLegalEntity)
 }
 
 func (c *Client) Advice(ctx context.Context) (json.RawMessage, error) {
-	return c.get(ctx, "/investments/combined/advice")
+	return c.get(ctx, pathAdvice)
 }
 
 func (c *Client) FeesPaid(ctx context.Context) (json.RawMessage, error) {
-	return c.get(ctx, "/fees/paid")
+	return c.get(ctx, pathFeesPaid)
 }
 
 func (c *Client) FundsSummary(ctx context.Context) (json.RawMessage, error) {
-	return c.get(ctx, "/funds/data/summary")
+	return c.get(ctx, pathFundsSummary)
 }
 
 func (c *Client) TaxIskYears(ctx context.Context) (json.RawMessage, error) {
-	return c.get(ctx, "/tax/isk/years")
+	return c.get(ctx, pathTaxIskYears)
 }
 
 func (c *Client) Documents(ctx context.Context) (json.RawMessage, error) {
-	return c.get(ctx, "/documents")
+	return c.get(ctx, pathDocuments)
 }
 
 func truncate(b []byte, n int) string {
