@@ -16,6 +16,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 )
@@ -179,6 +180,8 @@ const (
 	// pathTaxIskDetail is the literal prefix as it appears in the SPA bundle
 	// (`/tax/isk?taxYear=${e}&accountId=${t}`) — query built by TaxIsk.
 	pathTaxIskDetail = "/tax/isk?taxYear="
+	// pathFundsHoldings: bundle literal is `/funds/data/holdings?isins=${t}`.
+	pathFundsHoldings = "/funds/data/holdings?isins="
 )
 
 // DataPaths is the set of path literals CheckAPI verifies against the SPA
@@ -188,7 +191,7 @@ const (
 var DataPaths = []string{
 	pathAccountsAll, pathTransactions, pathPerformance, pathLegalEntity,
 	pathAdvice, pathFeesPaid, pathFundsSummary, pathTaxIskYears, pathDocuments,
-	pathTaxIskDetail,
+	pathTaxIskDetail, pathFundsHoldings,
 }
 
 func (c *Client) get(ctx context.Context, path string) (json.RawMessage, error) {
@@ -225,6 +228,12 @@ func (c *Client) FeesPaid(ctx context.Context) (json.RawMessage, error) {
 
 func (c *Client) FundsSummary(ctx context.Context) (json.RawMessage, error) {
 	return c.get(ctx, pathFundsSummary)
+}
+
+// FundsHoldings fetches the full look-through holdings for the given fund
+// ISINs (beyond the top "largePositions" in FundsSummary).
+func (c *Client) FundsHoldings(ctx context.Context, isins []string) (json.RawMessage, error) {
+	return c.get(ctx, pathFundsHoldings+url.QueryEscape(strings.Join(isins, ",")))
 }
 
 func (c *Client) TaxIskYears(ctx context.Context) (json.RawMessage, error) {

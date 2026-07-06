@@ -30,7 +30,7 @@ var Datasets = []Dataset{
 	{"profile", "Profile", "Legal entity / KYC (name, personal number, email)"},
 	{"advice", "Advice & risk", "Per-account advised vs taken risk and suitability declaration"},
 	{"fees", "Fees paid", "Every management fee charged (date, amount, VAT)"},
-	{"funds", "Fund catalog", "The funds you hold — ISIN, name, share class"},
+	{"funds", "Fund catalog", "The funds you hold — ISIN, name, share class + full look-through holdings"},
 	{"tax", "Tax years", "Available ISK tax (deklaration) years per account + per-year detail"},
 	{"documents", "Documents", "Register of your statements & documents"},
 }
@@ -203,6 +203,29 @@ func (c *Client) Build(ctx context.Context, selected []string, viewerTmpl string
 			if len(details) > 0 {
 				b, _ := json.Marshal(details)
 				if err := addJSON("tax_isk", b); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+
+	// Full look-through holdings per fund. One representative share class per
+	// depot — classes of the same depot share the same underlying holdings.
+	if raw, ok := raws["funds"]; ok {
+		var depots []fundsDepot
+		if err := json.Unmarshal(raw, &depots); err == nil {
+			var isins []string
+			for _, d := range depots {
+				if len(d.FundShareClasses) > 0 && d.FundShareClasses[0].ISIN != "" {
+					isins = append(isins, d.FundShareClasses[0].ISIN)
+				}
+			}
+			if len(isins) > 0 {
+				out, err := c.FundsHoldings(ctx, isins)
+				if err != nil {
+					out, _ = json.Marshal(map[string]string{"error": err.Error()})
+				}
+				if err := addJSON("fund_holdings", out); err != nil {
 					return nil, err
 				}
 			}
