@@ -1,6 +1,8 @@
 package lysa
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/csv"
 	"encoding/json"
@@ -42,12 +44,14 @@ func validKey(k string) bool {
 	return false
 }
 
-// Export fetches the selected datasets and writes them into outDir as raw JSON
-// (always) plus flattened CSV (for accounts/transactions/performance). It
-// returns the basenames of the files written.
-func (c *Client) Export(ctx context.Context, outDir string, selected []string, viewerTmpl string) (string, []string, error) {
+// Build fetches the selected datasets and returns the export as an in-memory set
+// of basename -> file bytes: pretty JSON (always) plus flattened CSV (for
+// accounts/transactions/performance/fees/funds/tax) and, when viewerTmpl is
+// non-empty, the self-contained viewer.html. It performs no disk I/O — the
+// caller decides whether to Zip it, WriteDir it, or both.
+func (c *Client) Build(ctx context.Context, selected []string, viewerTmpl string) (map[string][]byte, error) {
 	if !c.Authed() {
-		return "", nil, fmt.Errorf("not authenticated")
+		return nil, fmt.Errorf("not authenticated")
 	}
 	sel := map[string]bool{}
 	for _, s := range selected {
@@ -56,47 +60,34 @@ func (c *Client) Export(ctx context.Context, outDir string, selected []string, v
 		}
 	}
 	if len(sel) == 0 {
-		return "", nil, fmt.Errorf("no valid datasets selected")
-	}
-
-	// Each export lands in its own timestamped folder.
-	dir := filepath.Join(outDir, "lysa-export-"+time.Now().Format("2006-01-02_150405"))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", nil, err
+		return nil, fmt.Errorf("no valid datasets selected")
 	}
 
 	today := time.Now().UTC().Format("2006-01-02")
 	const earliest = "2000-01-01"
 
+	files := map[string][]byte{}
 	raws := map[string]json.RawMessage{}
-	var files []string
-	writeJSON := func(name string, raw json.RawMessage) error {
+	addJSON := func(name string, raw json.RawMessage) error {
 		raws[name] = raw
 		var pretty any
 		if err := json.Unmarshal(raw, &pretty); err != nil {
 			return err
 		}
 		b, _ := json.MarshalIndent(pretty, "", "  ")
-		if err := os.WriteFile(filepath.Join(dir, name+".json"), b, 0o644); err != nil {
-			return err
-		}
-		files = append(files, name+".json")
+		files[name+".json"] = b
 		return nil
 	}
-	writeCSV := func(name string, header []string, rows [][]string) error {
-		f, err := os.Create(filepath.Join(dir, name+".csv"))
-		if err != nil {
-			return err
-		}
-		defer f.Close()
-		w := csv.NewWriter(f)
+	addCSV := func(name string, header []string, rows [][]string) error {
+		var buf bytes.Buffer
+		w := csv.NewWriter(&buf)
 		_ = w.Write(header)
 		_ = w.WriteAll(rows)
 		w.Flush()
 		if err := w.Error(); err != nil {
 			return err
 		}
-		files = append(files, name+".csv")
+		files[name+".csv"] = buf.Bytes()
 		return nil
 	}
 
@@ -106,19 +97,19 @@ func (c *Client) Export(ctx context.Context, outDir string, selected []string, v
 	if sel["accounts"] || sel["performance"] {
 		raw, err := c.AccountsAll(ctx)
 		if err != nil {
-			return dir, files, err
+			return nil, err
 		}
 		var a accountsResp
 		if err := json.Unmarshal(raw, &a); err != nil {
-			return dir, files, err
+			return nil, err
 		}
 		accounts = &a
 		if sel["accounts"] {
-			if err := writeJSON("accounts", raw); err != nil {
-				return dir, files, err
+			if err := addJSON("accounts", raw); err != nil {
+				return nil, err
 			}
-			if err := writeCSV("positions", positionsHeader, a.positionRows()); err != nil {
-				return dir, files, err
+			if err := addCSV("positions", positionsHeader, a.positionRows()); err != nil {
+				return nil, err
 			}
 		}
 	}
@@ -126,17 +117,17 @@ func (c *Client) Export(ctx context.Context, outDir string, selected []string, v
 	if sel["transactions"] {
 		raw, err := c.Transactions(ctx, earliest, today)
 		if err != nil {
-			return dir, files, err
+			return nil, err
 		}
-		if err := writeJSON("transactions", raw); err != nil {
-			return dir, files, err
+		if err := addJSON("transactions", raw); err != nil {
+			return nil, err
 		}
 		var txs []transaction
 		if err := json.Unmarshal(raw, &txs); err != nil {
-			return dir, files, err
+			return nil, err
 		}
-		if err := writeCSV("transactions", txHeader, txRows(txs)); err != nil {
-			return dir, files, err
+		if err := addCSV("transactions", txHeader, txRows(txs)); err != nil {
+			return nil, err
 		}
 	}
 
@@ -149,115 +140,161 @@ func (c *Client) Export(ctx context.Context, outDir string, selected []string, v
 		}
 		raw, err := c.Performance(ctx, start, today)
 		if err != nil {
-			return dir, files, err
+			return nil, err
 		}
-		if err := writeJSON("performance", raw); err != nil {
-			return dir, files, err
+		if err := addJSON("performance", raw); err != nil {
+			return nil, err
 		}
 		var p performanceResp
 		if err := json.Unmarshal(raw, &p); err != nil {
-			return dir, files, err
+			return nil, err
 		}
-		if err := writeCSV("performance", perfHeader, p.rows()); err != nil {
-			return dir, files, err
+		if err := addCSV("performance", perfHeader, p.rows()); err != nil {
+			return nil, err
 		}
 	}
 
 	if sel["profile"] {
 		raw, err := c.LegalEntity(ctx)
 		if err != nil {
-			return dir, files, err
+			return nil, err
 		}
-		if err := writeJSON("profile", raw); err != nil {
-			return dir, files, err
+		if err := addJSON("profile", raw); err != nil {
+			return nil, err
 		}
 	}
 
 	if sel["advice"] {
 		raw, err := c.Advice(ctx)
 		if err != nil {
-			return dir, files, err
+			return nil, err
 		}
-		if err := writeJSON("advice", raw); err != nil {
-			return dir, files, err
+		if err := addJSON("advice", raw); err != nil {
+			return nil, err
 		}
 	}
 
 	if sel["fees"] {
 		raw, err := c.FeesPaid(ctx)
 		if err != nil {
-			return dir, files, err
+			return nil, err
 		}
-		if err := writeJSON("fees", raw); err != nil {
-			return dir, files, err
+		if err := addJSON("fees", raw); err != nil {
+			return nil, err
 		}
 		var fees []feePaid
 		if err := json.Unmarshal(raw, &fees); err != nil {
-			return dir, files, err
+			return nil, err
 		}
-		if err := writeCSV("fees", feesHeader, feeRows(fees)); err != nil {
-			return dir, files, err
+		if err := addCSV("fees", feesHeader, feeRows(fees)); err != nil {
+			return nil, err
 		}
 	}
 
 	if sel["funds"] {
 		raw, err := c.FundsSummary(ctx)
 		if err != nil {
-			return dir, files, err
+			return nil, err
 		}
-		if err := writeJSON("funds", raw); err != nil {
-			return dir, files, err
+		if err := addJSON("funds", raw); err != nil {
+			return nil, err
 		}
 		var funds []fundsDepot
 		if err := json.Unmarshal(raw, &funds); err != nil {
-			return dir, files, err
+			return nil, err
 		}
-		if err := writeCSV("funds", fundsHeader, fundRows(funds)); err != nil {
-			return dir, files, err
+		if err := addCSV("funds", fundsHeader, fundRows(funds)); err != nil {
+			return nil, err
 		}
 	}
 
 	if sel["tax"] {
 		raw, err := c.TaxIskYears(ctx)
 		if err != nil {
-			return dir, files, err
+			return nil, err
 		}
-		if err := writeJSON("tax", raw); err != nil {
-			return dir, files, err
+		if err := addJSON("tax", raw); err != nil {
+			return nil, err
 		}
 		var tax []taxIsk
 		if err := json.Unmarshal(raw, &tax); err != nil {
-			return dir, files, err
+			return nil, err
 		}
-		if err := writeCSV("tax_years", taxHeader, taxRows(tax)); err != nil {
-			return dir, files, err
+		if err := addCSV("tax_years", taxHeader, taxRows(tax)); err != nil {
+			return nil, err
 		}
 	}
 
 	if sel["documents"] {
 		raw, err := c.Documents(ctx)
 		if err != nil {
-			return dir, files, err
+			return nil, err
 		}
-		if err := writeJSON("documents", raw); err != nil {
-			return dir, files, err
+		if err := addJSON("documents", raw); err != nil {
+			return nil, err
 		}
 	}
 
 	if viewerTmpl != "" {
-		if err := writeViewer(dir, viewerTmpl, raws); err != nil {
-			return dir, files, err
-		}
-		files = append(files, "viewer.html")
+		files["viewer.html"] = buildViewer(viewerTmpl, raws)
 	}
 
-	sort.Strings(files)
-	return dir, files, nil
+	return files, nil
 }
 
-// writeViewer bakes the exported datasets into the self-contained viewer HTML so
+// ExportName is the timestamped basename used for the download filename and the
+// on-disk folder, e.g. "lysa-export-2006-01-02_150405".
+func ExportName() string {
+	return "lysa-export-" + time.Now().Format("2006-01-02_150405")
+}
+
+// SortedNames returns the file basenames in stable display order.
+func SortedNames(files map[string][]byte) []string {
+	names := make([]string, 0, len(files))
+	for n := range files {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// Zip packs the built files into a zip archive whose entries live under a single
+// top-level folder (dirName), so unzipping keeps them together.
+func Zip(dirName string, files map[string][]byte) ([]byte, error) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for _, name := range SortedNames(files) {
+		w, err := zw.Create(dirName + "/" + name)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := w.Write(files[name]); err != nil {
+			return nil, err
+		}
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// WriteDir writes the built files into outDir/dirName and returns that path.
+func WriteDir(outDir, dirName string, files map[string][]byte) (string, error) {
+	dir := filepath.Join(outDir, dirName)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	for _, name := range SortedNames(files) {
+		if err := os.WriteFile(filepath.Join(dir, name), files[name], 0o644); err != nil {
+			return "", err
+		}
+	}
+	return dir, nil
+}
+
+// buildViewer bakes the exported datasets into the self-contained viewer HTML so
 // it renders offline (file://) with no server.
-func writeViewer(dir, tmpl string, raws map[string]json.RawMessage) error {
+func buildViewer(tmpl string, raws map[string]json.RawMessage) []byte {
 	keys := []string{"accounts", "transactions", "performance", "profile", "advice", "fees", "funds", "tax", "documents"}
 	parts := make([]string, 0, len(keys))
 	for _, k := range keys {
@@ -269,8 +306,7 @@ func writeViewer(dir, tmpl string, raws map[string]json.RawMessage) error {
 	}
 	data := "{" + strings.Join(parts, ",") + "}"
 	data = strings.ReplaceAll(data, "</", "<\\/") // never break out of the <script> block
-	html := strings.Replace(tmpl, "__LYSA_DATA__", data, 1)
-	return os.WriteFile(filepath.Join(dir, "viewer.html"), []byte(html), 0o644)
+	return []byte(strings.Replace(tmpl, "__LYSA_DATA__", data, 1))
 }
 
 // --- typed views for CSV flattening ---

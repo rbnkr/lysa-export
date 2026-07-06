@@ -12,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -38,7 +39,9 @@ type server struct {
 }
 
 func main() {
-	srv := &server{outDir: env("OUT_DIR", "/out")}
+	// OUT_DIR is opt-in: set it (and mount a volume) to also save a copy to
+	// disk. Unset — the default — means the export is download-only.
+	srv := &server{outDir: env("OUT_DIR", "")}
 	port := env("PORT", "8080")
 
 	// Advisory API-drift preflight: fetch Lysa's public SPA bundle and check our
@@ -54,8 +57,13 @@ func main() {
 	mux.HandleFunc("/api/auth/qr.png", srv.handleQR)
 	mux.HandleFunc("/api/auth/status", srv.handleStatus)
 	mux.HandleFunc("/api/export", srv.handleExport)
+	mux.HandleFunc("/api/shutdown", srv.handleShutdown)
 
-	log.Printf("lysa-export listening on :%s — open http://localhost:%s (writing to %s)", port, port, srv.outDir)
+	dest := "download only"
+	if srv.outDir != "" {
+		dest = "download + disk copy to " + srv.outDir
+	}
+	log.Printf("lysa-export listening on :%s — open http://localhost:%s (%s)", port, port, dest)
 	if err := http.ListenAndServe(":"+port, mux); err != nil {
 		log.Fatal(err)
 	}
@@ -175,17 +183,49 @@ func (s *server) handleExport(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "bad request body"})
 		return
 	}
-	dir, files, err := c.Export(r.Context(), s.outDir, req.Datasets, string(viewerHTML))
+
+	// Build the export in memory, then hand it back as a zip the browser
+	// downloads. Errors here are non-fatal: we don't exit, so the user can retry.
+	files, err := c.Build(r.Context(), req.Datasets, string(viewerHTML))
 	if err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error(), "files": files})
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"files": files, "outDir": dir})
+	name := lysa.ExportName()
+	zipBytes, err := lysa.Zip(name, files)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "zip failed: " + err.Error()})
+		return
+	}
 
-	// Job done: exit so the container stops.
+	// Optional second copy to disk — only when OUT_DIR was configured at runtime.
+	if s.outDir != "" {
+		dir, err := lysa.WriteDir(s.outDir, name, files)
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "disk write failed: " + err.Error()})
+			return
+		}
+		w.Header().Set("X-Export-Disk", dir)
+	}
+
+	// Stream the zip as a download. The browser has all bytes once this
+	// response completes; it then calls /api/shutdown to stop the container.
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`.zip"`)
+	w.Header().Set("X-Export-Filename", name+".zip")
+	w.Header().Set("X-Export-Count", strconv.Itoa(len(files)))
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(zipBytes); err != nil {
+		log.Printf("export: writing zip to client failed: %v", err)
+	}
+}
+
+// handleShutdown lets the browser tell us the download is done so we can stop.
+func (s *server) handleShutdown(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "bye"})
 	go func() {
-		time.Sleep(1500 * time.Millisecond)
-		log.Printf("export complete (%d files) — exiting", len(files))
+		time.Sleep(300 * time.Millisecond)
+		log.Printf("export downloaded — exiting")
 		os.Exit(0)
 	}()
 }

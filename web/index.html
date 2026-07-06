@@ -87,17 +87,17 @@
   <!-- Export view -->
   <div id="export" class="hidden">
     <div id="datasets"></div>
-    <button id="exportbtn">Export selected</button>
+    <button id="exportbtn">Export &amp; download</button>
     <div class="err hidden" id="exporterr"></div>
   </div>
 
   <!-- Done view -->
   <div id="done" class="hidden">
-    <p class="center" style="font-size:15px;margin:4px 0 0">Export complete.</p>
+    <p class="center" style="font-size:15px;margin:4px 0 0">Export downloaded.</p>
     <ul class="files" id="filelist"></ul>
-    <p class="muted center" id="donepath" style="margin-top:14px"></p>
-    <p class="center" style="margin-top:10px">Open <b>viewer.html</b> in that folder to explore your data offline.</p>
-    <p class="muted center" style="margin-top:10px">The tool has finished — this container will now exit.</p>
+    <p class="muted center" id="donedisk" style="margin-top:14px"></p>
+    <p class="center" style="margin-top:10px">Unzip it and open <b>viewer.html</b> to explore your data offline.</p>
+    <p class="muted center" style="margin-top:10px">The tool has finished — this container has now shut down.</p>
     <p class="center" style="margin-top:14px"><b>You can now close this browser window.</b></p>
   </div>
 </div>
@@ -159,14 +159,31 @@ $('exportbtn').addEventListener('click', async () => {
   const btn = $('exportbtn'); btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Exporting…';
   $('exporterr').classList.add('hidden');
   try {
-    const d = await jpost('/api/export', {datasets: picked});
+    const resp = await fetch('/api/export', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({datasets: picked})});
+    if(!resp.ok){ const d = await resp.json().catch(()=>({})); throw new Error(d.error || ('HTTP '+resp.status)); }
+
+    const filename = resp.headers.get('X-Export-Filename') || 'lysa-export.zip';
+    const count = resp.headers.get('X-Export-Count');
+    const diskPath = resp.headers.get('X-Export-Disk');
+
+    // The browser now holds the whole zip in memory — save it from the blob.
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+
     $('export').classList.add('hidden');
     $('subtitle').textContent = '';
-    $('filelist').innerHTML = d.files.map(f=>`<li>${f}</li>`).join('');
-    $('donepath').textContent = 'Saved to ' + d.outDir + ' (mapped volume on your host).';
+    $('filelist').innerHTML = `<li>${filename}${count ? ` — ${count} files` : ''}</li>`;
+    if(diskPath){ $('donedisk').textContent = 'A copy was also saved to ' + diskPath + ' on the host.'; }
     $('done').classList.remove('hidden');
+
+    // We have the file — tell the server it can shut the container down.
+    fetch('/api/shutdown', {method:'POST'}).catch(()=>{});
   } catch(e){
-    btn.disabled = false; btn.textContent = 'Export selected';
+    btn.disabled = false; btn.textContent = 'Export & download';
     $('exporterr').textContent = e.message; $('exporterr').classList.remove('hidden');
   }
 });

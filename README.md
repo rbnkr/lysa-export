@@ -3,7 +3,9 @@
 A small self-contained tool to export **your own** [Lysa](https://lysa.se)
 account data. You run it as a Docker container; it serves a local web page with
 a **BankID QR code**, and once you've logged in you tick which datasets you want.
-It writes them to disk as **JSON + CSV** and then exits.
+It bundles them (**JSON + CSV**, plus a self-contained offline HTML viewer) into a
+**zip your browser downloads**, then exits. Optionally it also writes a copy to
+disk (see `OUT_DIR`).
 
 It talks to Lysa's undocumented internal API (`api.lysa.se`) — the same one the
 web app uses — driving Lysa's own BankID login and reusing the session token.
@@ -27,17 +29,24 @@ performance additionally get a flattened `<name>.csv` (`positions.csv`,
 
 ```bash
 docker build -t lysa-export .
-docker run --rm -p 8080:8080 -v "$PWD/lysa-export-out:/out" lysa-export
+docker run --rm -p 8080:8080 lysa-export
 ```
 
 Then open <http://localhost:8080>, scan the QR with your BankID app, choose your
-datasets, and click **Export**. Files land in `./lysa-export-out`; the container
-exits on its own when done.
+datasets, and click **Export & download**. Your browser downloads
+`lysa-export-<timestamp>.zip`; the container exits once the download completes.
+
+To **also keep a copy on disk**, set `OUT_DIR` and mount a volume there:
+
+```bash
+docker run --rm -p 8080:8080 -e OUT_DIR=/out -v "$PWD/lysa-export-out:/out" lysa-export
+```
 
 ### Run from source (no Docker)
 
 ```bash
-OUT_DIR=./lysa-export-out go run .
+go run .                    # download only
+OUT_DIR=./lysa-export-out go run .   # also write a copy to disk
 ```
 
 ## How it works
@@ -50,7 +59,10 @@ OUT_DIR=./lysa-export-out go run .
 3. `GET /bankid/login/{orderRef}` is polled until `status: complete`, which sets
    the `lysa-token` cookie. The token is kept **in memory only** and never written
    to disk or logged.
-4. The selected data endpoints are fetched and written out; the process exits.
+4. The selected data endpoints are fetched and bundled — in memory — into a zip
+   (JSON + CSV + a self-contained `viewer.html`) that the browser downloads. If
+   `OUT_DIR` is set, a copy is also written there. The container exits once the
+   browser confirms it has the download.
 
 The session token lasts ~30 minutes — far longer than the couple of minutes the
 whole export takes — so there's no session-refresh machinery. If you log in and
@@ -61,7 +73,7 @@ then walk away for half an hour before exporting, just restart and log in again.
 | Env var | Default | Purpose |
 |---|---|---|
 | `PORT` | `8080` | Web UI port |
-| `OUT_DIR` | `/out` | Where export files are written |
+| `OUT_DIR` | *(unset)* | If set, also write a copy of the export to this dir (mount a volume there). Unset = browser download only. |
 
 ## Caveats
 
