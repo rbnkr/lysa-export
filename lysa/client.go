@@ -182,6 +182,8 @@ const (
 	pathTaxIskDetail = "/tax/isk?taxYear="
 	// pathFundsHoldings: bundle literal is `/funds/data/holdings?isins=${t}`.
 	pathFundsHoldings = "/funds/data/holdings?isins="
+	// pathFeeAccount: bundle literal is `/fees/account/${e}`.
+	pathFeeAccount = "/fees/account/"
 )
 
 // DataPaths is the set of path literals CheckAPI verifies against the SPA
@@ -191,7 +193,7 @@ const (
 var DataPaths = []string{
 	pathAccountsAll, pathTransactions, pathPerformance, pathLegalEntity,
 	pathAdvice, pathFeesPaid, pathFundsSummary, pathTaxIskYears, pathDocuments,
-	pathTaxIskDetail, pathFundsHoldings,
+	pathTaxIskDetail, pathFundsHoldings, pathFeeAccount,
 }
 
 func (c *Client) get(ctx context.Context, path string) (json.RawMessage, error) {
@@ -224,6 +226,11 @@ func (c *Client) Advice(ctx context.Context) (json.RawMessage, error) {
 
 func (c *Client) FeesPaid(ctx context.Context) (json.RawMessage, error) {
 	return c.get(ctx, pathFeesPaid)
+}
+
+// FeesAccount fetches the current fee rates for one account.
+func (c *Client) FeesAccount(ctx context.Context, accountID string) (json.RawMessage, error) {
+	return c.get(ctx, pathFeeAccount+url.PathEscape(accountID))
 }
 
 func (c *Client) FundsSummary(ctx context.Context) (json.RawMessage, error) {

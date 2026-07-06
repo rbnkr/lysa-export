@@ -29,7 +29,7 @@ var Datasets = []Dataset{
 	{"performance", "Performance", "Daily portfolio value series + total return"},
 	{"profile", "Profile", "Legal entity / KYC (name, personal number, email)"},
 	{"advice", "Advice & risk", "Per-account advised vs taken risk and suitability declaration"},
-	{"fees", "Fees paid", "Every management fee charged (date, amount, VAT)"},
+	{"fees", "Fees paid", "Every management fee charged (date, amount, VAT) + current fee rates"},
 	{"funds", "Fund catalog", "The funds you hold — ISIN, name, share class + full look-through holdings"},
 	{"tax", "Tax years", "Available ISK tax (deklaration) years per account + per-year detail"},
 	{"documents", "Documents", "Register of your statements & documents"},
@@ -118,22 +118,23 @@ func (c *Client) Build(ctx context.Context, selected []string, viewerTmpl string
 		return nil
 	}
 
-	// accounts/all is fetched up front when either accounts or performance is
-	// selected: it's a dataset in its own right and also supplies the earliest
-	// account-creation date used as the performance series start.
+	// accounts/all is fetched up front when accounts, performance, or fees is
+	// selected: it's a dataset in its own right, supplies the earliest
+	// account-creation date used as the performance series start, and lists
+	// the account ids the per-account fee-rate calls need.
 	var accountsRaw json.RawMessage
+	var accs accountsResp
 	perfStart := earliest
-	if sel["accounts"] || sel["performance"] {
+	if sel["accounts"] || sel["performance"] || sel["fees"] {
 		raw, err := c.AccountsAll(ctx)
 		if err != nil {
 			return nil, err
 		}
 		accountsRaw = raw
-		var a accountsResp
-		if err := json.Unmarshal(raw, &a); err != nil {
+		if err := json.Unmarshal(raw, &accs); err != nil {
 			return nil, err
 		}
-		if e := a.earliestCreated(); e != "" {
+		if e := accs.earliestCreated(); e != "" {
 			perfStart = e
 		}
 	}
@@ -229,6 +230,29 @@ func (c *Client) Build(ctx context.Context, selected []string, viewerTmpl string
 					return nil, err
 				}
 			}
+		}
+	}
+
+	// Current fee rates, one call per investment account.
+	if sel["fees"] && len(accs.InvestmentAccounts) > 0 {
+		type feeRate struct {
+			AccountID string          `json:"accountId"`
+			Data      json.RawMessage `json:"data,omitempty"`
+			Error     string          `json:"error,omitempty"`
+		}
+		var rates []feeRate
+		for _, acc := range accs.InvestmentAccounts {
+			r := feeRate{AccountID: acc.AccountID}
+			if data, err := c.FeesAccount(ctx, acc.AccountID); err != nil {
+				r.Error = err.Error()
+			} else {
+				r.Data = data
+			}
+			rates = append(rates, r)
+		}
+		b, _ := json.Marshal(rates)
+		if err := addJSON("fee_rates", b); err != nil {
+			return nil, err
 		}
 	}
 
