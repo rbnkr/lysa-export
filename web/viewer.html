@@ -172,8 +172,9 @@ function renderOverview(p){
     c.appendChild(el('div','kv', f.filter(x=>x[1]).map(([k,v])=>`<div class="k">${k}</div><div>${v}</div>`).join('')));
     wrap.appendChild(c);
   }
-  const tax=OUT.tax;
-  if(tax&&tax.length){
+  // years-only fallback — the Tax tab supersedes this when per-year data exists
+  const tax=OUT.tax, hasTaxTab=OUT.tax_isk&&OUT.tax_isk.some(t=>t.data);
+  if(tax&&tax.length&&!hasTaxTab){
     const c=el('div','card'); c.appendChild(el('h2',null,'Tax years (ISK)'));
     c.appendChild(el('div','kv', tax.map(t=>`<div class="k">${acctName[t.accountId]||t.accountId.slice(0,8)}</div><div>${(t.taxYears||[]).join(', ')}</div>`).join('')));
     wrap.appendChild(c);
