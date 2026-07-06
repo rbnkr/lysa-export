@@ -44,6 +44,33 @@ func validKey(k string) bool {
 	return false
 }
 
+// datasetSpec describes one exportable dataset: how to fetch its raw JSON and,
+// optionally, how to flatten it into a CSV.
+type datasetSpec struct {
+	key    string // dataset key, JSON basename, and viewer data key
+	fetch  func() (json.RawMessage, error)
+	csv    string // CSV basename; empty = JSON only
+	header []string
+	rows   func(json.RawMessage) ([][]string, error)
+}
+
+// rowsFn adapts a typed row-builder into one that unmarshals raw JSON first, so
+// the dataset table can stay uniform regardless of each response's Go type.
+func rowsFn[T any](rows func(T) [][]string) func(json.RawMessage) ([][]string, error) {
+	return func(raw json.RawMessage) ([][]string, error) {
+		var v T
+		if err := json.Unmarshal(raw, &v); err != nil {
+			return nil, err
+		}
+		return rows(v), nil
+	}
+}
+
+// constRaw returns a fetch func that yields already-fetched raw JSON.
+func constRaw(raw json.RawMessage) func() (json.RawMessage, error) {
+	return func() (json.RawMessage, error) { return raw, nil }
+}
+
 // Build fetches the selected datasets and returns the export as an in-memory set
 // of basename -> file bytes: pretty JSON (always) plus flattened CSV (for
 // accounts/transactions/performance/fees/funds/tax) and, when viewerTmpl is
@@ -91,147 +118,57 @@ func (c *Client) Build(ctx context.Context, selected []string, viewerTmpl string
 		return nil
 	}
 
-	// accounts/all is needed both as a dataset and to derive the performance
-	// start date, so fetch it once if either is selected.
-	var accounts *accountsResp
+	// accounts/all is fetched up front when either accounts or performance is
+	// selected: it's a dataset in its own right and also supplies the earliest
+	// account-creation date used as the performance series start.
+	var accountsRaw json.RawMessage
+	perfStart := earliest
 	if sel["accounts"] || sel["performance"] {
 		raw, err := c.AccountsAll(ctx)
 		if err != nil {
 			return nil, err
 		}
+		accountsRaw = raw
 		var a accountsResp
 		if err := json.Unmarshal(raw, &a); err != nil {
 			return nil, err
 		}
-		accounts = &a
-		if sel["accounts"] {
-			if err := addJSON("accounts", raw); err != nil {
+		if e := a.earliestCreated(); e != "" {
+			perfStart = e
+		}
+	}
+
+	specs := []datasetSpec{
+		{key: "accounts", fetch: constRaw(accountsRaw), csv: "positions", header: positionsHeader, rows: rowsFn(func(a accountsResp) [][]string { return a.positionRows() })},
+		{key: "transactions", fetch: func() (json.RawMessage, error) { return c.Transactions(ctx, earliest, today) }, csv: "transactions", header: txHeader, rows: rowsFn(txRows)},
+		{key: "performance", fetch: func() (json.RawMessage, error) { return c.Performance(ctx, perfStart, today) }, csv: "performance", header: perfHeader, rows: rowsFn(func(p performanceResp) [][]string { return p.rows() })},
+		{key: "profile", fetch: func() (json.RawMessage, error) { return c.LegalEntity(ctx) }},
+		{key: "advice", fetch: func() (json.RawMessage, error) { return c.Advice(ctx) }},
+		{key: "fees", fetch: func() (json.RawMessage, error) { return c.FeesPaid(ctx) }, csv: "fees", header: feesHeader, rows: rowsFn(feeRows)},
+		{key: "funds", fetch: func() (json.RawMessage, error) { return c.FundsSummary(ctx) }, csv: "funds", header: fundsHeader, rows: rowsFn(fundRows)},
+		{key: "tax", fetch: func() (json.RawMessage, error) { return c.TaxIskYears(ctx) }, csv: "tax_years", header: taxHeader, rows: rowsFn(taxRows)},
+		{key: "documents", fetch: func() (json.RawMessage, error) { return c.Documents(ctx) }},
+	}
+
+	for _, s := range specs {
+		if !sel[s.key] {
+			continue
+		}
+		raw, err := s.fetch()
+		if err != nil {
+			return nil, err
+		}
+		if err := addJSON(s.key, raw); err != nil {
+			return nil, err
+		}
+		if s.rows != nil {
+			rows, err := s.rows(raw)
+			if err != nil {
 				return nil, err
 			}
-			if err := addCSV("positions", positionsHeader, a.positionRows()); err != nil {
+			if err := addCSV(s.csv, s.header, rows); err != nil {
 				return nil, err
 			}
-		}
-	}
-
-	if sel["transactions"] {
-		raw, err := c.Transactions(ctx, earliest, today)
-		if err != nil {
-			return nil, err
-		}
-		if err := addJSON("transactions", raw); err != nil {
-			return nil, err
-		}
-		var txs []transaction
-		if err := json.Unmarshal(raw, &txs); err != nil {
-			return nil, err
-		}
-		if err := addCSV("transactions", txHeader, txRows(txs)); err != nil {
-			return nil, err
-		}
-	}
-
-	if sel["performance"] {
-		start := earliest
-		if accounts != nil {
-			if e := accounts.earliestCreated(); e != "" {
-				start = e
-			}
-		}
-		raw, err := c.Performance(ctx, start, today)
-		if err != nil {
-			return nil, err
-		}
-		if err := addJSON("performance", raw); err != nil {
-			return nil, err
-		}
-		var p performanceResp
-		if err := json.Unmarshal(raw, &p); err != nil {
-			return nil, err
-		}
-		if err := addCSV("performance", perfHeader, p.rows()); err != nil {
-			return nil, err
-		}
-	}
-
-	if sel["profile"] {
-		raw, err := c.LegalEntity(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if err := addJSON("profile", raw); err != nil {
-			return nil, err
-		}
-	}
-
-	if sel["advice"] {
-		raw, err := c.Advice(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if err := addJSON("advice", raw); err != nil {
-			return nil, err
-		}
-	}
-
-	if sel["fees"] {
-		raw, err := c.FeesPaid(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if err := addJSON("fees", raw); err != nil {
-			return nil, err
-		}
-		var fees []feePaid
-		if err := json.Unmarshal(raw, &fees); err != nil {
-			return nil, err
-		}
-		if err := addCSV("fees", feesHeader, feeRows(fees)); err != nil {
-			return nil, err
-		}
-	}
-
-	if sel["funds"] {
-		raw, err := c.FundsSummary(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if err := addJSON("funds", raw); err != nil {
-			return nil, err
-		}
-		var funds []fundsDepot
-		if err := json.Unmarshal(raw, &funds); err != nil {
-			return nil, err
-		}
-		if err := addCSV("funds", fundsHeader, fundRows(funds)); err != nil {
-			return nil, err
-		}
-	}
-
-	if sel["tax"] {
-		raw, err := c.TaxIskYears(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if err := addJSON("tax", raw); err != nil {
-			return nil, err
-		}
-		var tax []taxIsk
-		if err := json.Unmarshal(raw, &tax); err != nil {
-			return nil, err
-		}
-		if err := addCSV("tax_years", taxHeader, taxRows(tax)); err != nil {
-			return nil, err
-		}
-	}
-
-	if sel["documents"] {
-		raw, err := c.Documents(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if err := addJSON("documents", raw); err != nil {
-			return nil, err
 		}
 	}
 
