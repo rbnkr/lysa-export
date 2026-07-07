@@ -28,10 +28,7 @@ There is **no official Lysa API**; this is unofficial and unsupported.
 Each selected dataset is written as `<name>.json`; accounts, transactions,
 performance, fees, funds and tax additionally get a flattened `<name>.csv`
 (`positions.csv`, `transactions.csv`, `performance.csv`, `fees.csv`,
-`funds.csv`, `tax_years.csv`). The extra files named in parentheses above come
-from endpoints spotted in Lysa's app bundle but not yet observed live — they
-are fetched best-effort, with any error embedded in the file itself rather
-than failing the export.
+`funds.csv`, `tax_years.csv`).
 
 ## Usage
 
